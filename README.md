@@ -11,7 +11,7 @@ Flutter 빌드 에러를 **한 번에 해결**하는 자동화 스크립트예�
 ### 🚀 원클릭 설치
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/main/install.sh | sh
 ```
 
 ### 💫 바로 사용
@@ -83,7 +83,7 @@ flutter-fix --help
 
 ```bash
 # 동일한 설치 명령어로 최신 버전 업데이트
-curl -fsSL https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/main/install.sh | sh
 ```
 
 ## 🛠️ 수동 설치
@@ -149,7 +149,7 @@ flutter run
 #### `curl` 명령어 실행 안됨
 ```bash
 # wget 사용
-wget -qO- https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/main/install.sh | bash
+wget -qO- https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/main/install.sh | sh
 ```
 
 #### `flutter-fix` 명령어를 찾을 수 없음
