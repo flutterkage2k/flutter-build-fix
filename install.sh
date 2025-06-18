@@ -20,7 +20,7 @@ NC='\033[0m'
 REPO="flutterkage2k/flutter-build-fix"
 INSTALL_DIR="$HOME/.flutter-tools"
 SCRIPT_NAME="flutter_build_fix.sh"
-SCRIPT_URL="https://github.com/$REPO/releases/latest/download/$SCRIPT_NAME"
+SCRIPT_URL="https://raw.githubusercontent.com/$REPO/main/$SCRIPT_NAME"
 
 log_info()    { echo -e "${BLUE}ℹ️  $1${NC}"; }
 log_success() { echo -e "${GREEN}✅ $1${NC}"; }
