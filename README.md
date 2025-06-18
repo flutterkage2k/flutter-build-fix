@@ -11,8 +11,17 @@ Flutter 빌드 에러를 **한 번에 해결**하는 자동화 스크립트예�
 ### 🚀 원클릭 설치
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/main/install.sh -o install.sh && zsh install.sh
 ```
+
+!!! warning "⚠️ Shell 자동 감지 문제 안내"
+    macOS에서는 `sh`가 bash로 실행될 수 있어 zsh 사용자의 `.zshrc`에 alias가 등록되지 않을 수 있습니다.
+    따라서 아래와 같이 직접 설치 후 실행하는 방법을 권장합니다:
+
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/main/install.sh -o install.sh
+    zsh install.sh
+    ```
 
 ### 💫 바로 사용
 
@@ -83,7 +92,7 @@ flutter-fix --help
 
 ```bash
 # 동일한 설치 명령어로 최신 버전 업데이트
-curl -fsSL https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/main/install.sh -o install.sh && zsh install.sh
 ```
 
 ## 🛠️ 수동 설치

@@ -27,53 +27,43 @@ log_success() { echo -e "${GREEN}✅ $1${NC}"; }
 log_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
 log_error()   { echo -e "${RED}❌ $1${NC}"; }
 
-# Shell 타입 감지 함수 개선
+# 개선된 Shell 감지 함수
 detect_shell() {
-    # 현재 실행 중인 shell 확인
-    if [ -n "$ZSH_VERSION" ]; then
-        echo "zsh"
-    elif [ -n "$BASH_VERSION" ]; then
-        echo "bash"
-    elif [ -n "$FISH_VERSION" ]; then
-        echo "fish"
-    else
-        # $SHELL 환경변수로 기본 shell 확인
-        case "$SHELL" in
-            */zsh) echo "zsh" ;;
-            */bash) echo "bash" ;;
-            */fish) echo "fish" ;;
-            *) echo "sh" ;;
-        esac
-    fi
+  if [ -n "$ZSH_VERSION" ]; then
+    echo "zsh"
+    return
+  elif [ -n "$BASH_VERSION" ]; then
+    echo "bash"
+    return
+  fi
+
+  case "$SHELL" in
+    */zsh) echo "zsh" ;;
+    */bash) echo "bash" ;;
+    */fish) echo "fish" ;;
+    *) 
+      ps -p "$PPID" -o comm= | sed 's/-//' | awk '{print tolower($1)}'
+      ;;
+  esac
 }
 
-# Shell 설정 파일 경로 반환
+# Shell에 따른 설정 파일 결정
 get_shell_rc() {
-    local shell_type=$(detect_shell)
-    case $shell_type in
-        zsh) 
-            # zsh는 여러 설정 파일 사용 가능
-            if [ -f "$HOME/.zshrc" ]; then
-                echo "$HOME/.zshrc"
-            elif [ -f "$HOME/.zsh_profile" ]; then
-                echo "$HOME/.zsh_profile"
-            else
-                echo "$HOME/.zshrc"  # 기본적으로 .zshrc 생성
-            fi
-            ;;
-        bash) 
-            # bash도 여러 설정 파일 확인
-            if [ -f "$HOME/.bashrc" ]; then
-                echo "$HOME/.bashrc"
-            elif [ -f "$HOME/.bash_profile" ]; then
-                echo "$HOME/.bash_profile"
-            else
-                echo "$HOME/.bashrc"  # 기본적으로 .bashrc 생성
-            fi
-            ;;
-        fish) echo "$HOME/.config/fish/config.fish" ;;
-        *) echo "$HOME/.profile" ;;
-    esac
+  local shell_type=$(detect_shell)
+  case $shell_type in
+    zsh)
+      [ -f "$HOME/.zshrc" ] && echo "$HOME/.zshrc" || echo "$HOME/.zshrc"
+      ;;
+    bash)
+      [ -f "$HOME/.bashrc" ] && echo "$HOME/.bashrc" || echo "$HOME/.bashrc"
+      ;;
+    fish)
+      echo "$HOME/.config/fish/config.fish"
+      ;;
+    *)
+      echo "$HOME/.profile"
+      ;;
+  esac
 }
 
 check_dependencies() {
