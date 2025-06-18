@@ -59,6 +59,26 @@ flutter-fix --help
 - 🛠️ **Gradle이나 Pods 관련 문제가 생겼을 때**
 - ⚡ **"Starting a Gradle Daemon" 에러 발생 시**
 
+## 📍 설치 정보
+
+### 자동 설치 시
+- **설치 위치**: `~/.flutter-tools/flutter_build_fix.sh`
+- **지원 Shell**: `zsh`, `bash`, `fish` 자동 감지
+- **설정 파일**: 각 Shell에 맞는 설정 파일에 자동 추가
+  - `zsh`: `~/.zshrc` 
+  - `bash`: `~/.bashrc` 또는 `~/.bash_profile`
+  - `fish`: `~/.config/fish/config.fish`
+
+### 설치 후 확인
+```bash
+# 새 터미널을 열거나
+source ~/.zshrc    # zsh 사용자
+source ~/.bashrc   # bash 사용자
+
+# 설치 확인
+flutter-fix --help
+```
+
 ## 🔄 업데이트
 
 ```bash
@@ -69,18 +89,28 @@ curl -fsSL https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/mai
 ## 🛠️ 수동 설치
 
 ```bash
-# 1. 최신 버전 다운로드
-wget https://github.com/flutterkage2k/flutter-build-fix/releases/latest/download/flutter_build_fix.sh
+# 1. 설치 디렉토리 생성
+mkdir -p ~/.flutter-tools
 
-# 2. 실행 권한 부여
-chmod +x flutter_build_fix.sh
+# 2. 최신 버전 다운로드
+curl -fsSL https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/main/flutter_build_fix.sh \
+  -o ~/.flutter-tools/flutter_build_fix.sh
 
-# 3. 원하는 위치로 이동
-mv flutter_build_fix.sh ~/bin/
+# 3. 실행 권한 부여
+chmod +x ~/.flutter-tools/flutter_build_fix.sh
 
-# 4. alias 설정 (선택사항)
-echo 'alias flutter-fix="~/bin/flutter_build_fix.sh --full"' >> ~/.zshrc
+# 4. alias 설정 (Shell에 맞게 선택)
+# zsh 사용자
+echo 'alias flutter-fix="$HOME/.flutter-tools/flutter_build_fix.sh --full"' >> ~/.zshrc
+echo 'alias ffand="$HOME/.flutter-tools/flutter_build_fix.sh --android"' >> ~/.zshrc
+echo 'alias ffios="$HOME/.flutter-tools/flutter_build_fix.sh --ios"' >> ~/.zshrc
 source ~/.zshrc
+
+# bash 사용자
+echo 'alias flutter-fix="$HOME/.flutter-tools/flutter_build_fix.sh --full"' >> ~/.bashrc
+echo 'alias ffand="$HOME/.flutter-tools/flutter_build_fix.sh --android"' >> ~/.bashrc
+echo 'alias ffios="$HOME/.flutter-tools/flutter_build_fix.sh --ios"' >> ~/.bashrc
+source ~/.bashrc
 ```
 
 ## 🎯 실제 사용 예시
@@ -124,9 +154,15 @@ wget -qO- https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/main
 
 #### `flutter-fix` 명령어를 찾을 수 없음
 ```bash
-# 현재 세션에 적용
+# Shell 확인
+echo $SHELL
+
+# Shell별 설정 파일 다시 로드
 source ~/.zshrc    # zsh 사용자
 source ~/.bashrc   # bash 사용자
+source ~/.config/fish/config.fish  # fish 사용자
+
+# 또는 새 터미널 열기
 ```
 
 #### Java 17을 찾을 수 없음 (macOS)
@@ -138,13 +174,34 @@ brew install openjdk@17
 sudo ln -sfn /opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk /Library/Java/JavaVirtualMachines/openjdk-17.jdk
 ```
 
+#### 다른 Shell 사용하는 경우
+```bash
+# 현재 Shell 확인
+echo $SHELL
+
+# 수동으로 alias 추가
+nano ~/.zshrc      # zsh
+nano ~/.bashrc     # bash
+nano ~/.config/fish/config.fish  # fish
+```
+
 ## 🗑️ 제거
 
 ```bash
-# 완전 제거
+# 스크립트 파일 삭제
 rm -rf ~/.flutter-tools
-sed -i.bak '/flutter-fix\|ffand\|ffios/d' ~/.zshrc
+
+# alias 제거 (Shell에 맞게 선택)
+# zsh
+sed -i '' '/flutter-fix\|ffand\|ffios/d' ~/.zshrc
 source ~/.zshrc
+
+# bash  
+sed -i '/flutter-fix\|ffand\|ffios/d' ~/.bashrc
+source ~/.bashrc
+
+# fish
+sed -i '/flutter-fix\|ffand\|ffios/d' ~/.config/fish/config.fish
 ```
 
 ## 🤝 기여하기
