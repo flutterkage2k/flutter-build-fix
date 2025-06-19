@@ -6,6 +6,8 @@
 
 Flutter 빌드 에러를 **한 번에 해결**하는 자동화 스크립트예요! Java, Gradle, iOS 관련 문제를 모두 해결합니다.
 
+> **🍎 macOS 전용** - 이 스크립트는 macOS에서만 동작합니다.
+
 ## ⚡ 빠른 시작
 
 ### 🚀 원클릭 설치
@@ -22,19 +24,19 @@ curl -fsSL https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/mai
 ```bash
 flutter-fix    # 전체 정리 (Android + iOS)
 ffand          # Android만
-ffios          # iOS만 (macOS)
+ffios          # iOS만
 ```
 
 ## 🎯 주요 기능
 
-| 기능 | 설명 | 지원 OS |
-|------|------|---------|
-| ☕ **Java 17 자동 설정** | Java 17 자동 감지 및 환경변수 설정 | macOS, Linux |
-| 🧹 **Flutter 캐시 정리** | `flutter clean`, `flutter pub get` 자동 실행 | 모든 OS |
-| 🛠️ **Gradle 정리** | Android 빌드 캐시 및 daemon 정리 | 모든 OS |
-| 📱 **iOS Pods 재설치** | CocoaPods 완전 정리 및 재설치 | macOS |
-| 🍎 **Xcode 캐시 정리** | DerivedData 폴더 삭제 | macOS |
-| 🔔 **자동 업데이트 알림** | 새 버전 출시 시 자동 알림 | 모든 OS |
+| 기능 | 설명 |
+|------|------|
+| ☕ **Java 17 자동 설정** | Java 17 자동 감지 및 환경변수 설정 |
+| 🧹 **Flutter 캐시 정리** | `flutter clean`, `flutter pub get` 자동 실행 |
+| 🛠️ **Gradle 정리** | Android 빌드 캐시 및 daemon 정리 |
+| 📱 **iOS Pods 재설치** | CocoaPods 완전 정리 및 재설치 |
+| 🍎 **Xcode 캐시 정리** | DerivedData 폴더 삭제 |
+| 🔔 **자동 업데이트 알림** | 새 버전 출시 시 자동 알림 |
 
 ## 📋 사용법
 
@@ -47,7 +49,7 @@ flutter-fix
 # Android 문제만 해결
 ffand
 
-# iOS 문제만 해결 (macOS)
+# iOS 문제만 해결
 ffios
 
 # 도움말
@@ -66,16 +68,15 @@ flutter-fix --help
 
 ### 자동 설치 시
 - **설치 위치**: `~/.flutter-tools/flutter_build_fix.sh`
-- **지원 Shell**: `zsh`, `bash`, `fish` 자동 감지
+- **지원 Shell**: `zsh`, `bash` 자동 감지
 - **설정 파일**: 각 Shell에 맞는 설정 파일에 자동 추가
   - `zsh`: `~/.zshrc` 
   - `bash`: `~/.bashrc` 또는 `~/.bash_profile`
-  - `fish`: `~/.config/fish/config.fish`
 
 ### 설치 후 확인
 ```bash
 # 새 터미널을 열거나
-source ~/.zshrc    # zsh 사용자
+source ~/.zshrc    # zsh 사용자 (기본)
 source ~/.bashrc   # bash 사용자
 
 # 설치 확인
@@ -102,18 +103,11 @@ curl -fsSL https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/mai
 # 3. 실행 권한 부여
 chmod +x ~/.flutter-tools/flutter_build_fix.sh
 
-# 4. alias 설정 (Shell에 맞게 선택)
-# zsh 사용자
+# 4. alias 설정 (macOS 기본 zsh)
 echo 'alias flutter-fix="$HOME/.flutter-tools/flutter_build_fix.sh --full"' >> ~/.zshrc
 echo 'alias ffand="$HOME/.flutter-tools/flutter_build_fix.sh --android"' >> ~/.zshrc
 echo 'alias ffios="$HOME/.flutter-tools/flutter_build_fix.sh --ios"' >> ~/.zshrc
 source ~/.zshrc
-
-# bash 사용자
-echo 'alias flutter-fix="$HOME/.flutter-tools/flutter_build_fix.sh --full"' >> ~/.bashrc
-echo 'alias ffand="$HOME/.flutter-tools/flutter_build_fix.sh --android"' >> ~/.bashrc
-echo 'alias ffios="$HOME/.flutter-tools/flutter_build_fix.sh --ios"' >> ~/.bashrc
-source ~/.bashrc
 ```
 
 ## 🎯 실제 사용 예시
@@ -151,41 +145,54 @@ flutter run
 
 #### `curl` 명령어 실행 안됨
 ```bash
-# wget 사용
-wget -qO- https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/main/install.sh | sh
+# wget 사용 (Homebrew로 설치 필요)
+brew install wget
+wget -qO- https://raw.githubusercontent.com/flutterkage2k/flutter-build-fix/main/install.sh | zsh
 ```
 
 #### `flutter-fix` 명령어를 찾을 수 없음
 ```bash
-# Shell 확인
+# 현재 Shell 확인
 echo $SHELL
 
-# Shell별 설정 파일 다시 로드
-source ~/.zshrc    # zsh 사용자
-source ~/.bashrc   # bash 사용자
-source ~/.config/fish/config.fish  # fish 사용자
+# zsh 설정 파일 다시 로드 (macOS 기본)
+source ~/.zshrc
+
+# bash 사용 시
+source ~/.bashrc
 
 # 또는 새 터미널 열기
 ```
 
-#### Java 17을 찾을 수 없음 (macOS)
+#### Java 17을 찾을 수 없음
 ```bash
 # Homebrew로 Java 17 설치
 brew install openjdk@17
 
 # 시스템에 등록
 sudo ln -sfn /opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk /Library/Java/JavaVirtualMachines/openjdk-17.jdk
+
+# 환경변수 설정 (zsh)
+echo 'export JAVA_HOME=/opt/homebrew/opt/openjdk@17' >> ~/.zshrc
+source ~/.zshrc
 ```
 
-#### 다른 Shell 사용하는 경우
+#### Xcode가 설치되지 않음
 ```bash
-# 현재 Shell 확인
-echo $SHELL
+# App Store에서 Xcode 설치 또는
+xcode-select --install
 
-# 수동으로 alias 추가
-nano ~/.zshrc      # zsh
-nano ~/.bashrc     # bash
-nano ~/.config/fish/config.fish  # fish
+# Command Line Tools만 설치
+```
+
+#### CocoaPods 문제
+```bash
+# CocoaPods 재설치
+sudo gem uninstall cocoapods
+sudo gem install cocoapods
+
+# 또는 Homebrew로 설치
+brew install cocoapods
 ```
 
 ## 🗑️ 제거
@@ -194,17 +201,13 @@ nano ~/.config/fish/config.fish  # fish
 # 스크립트 파일 삭제
 rm -rf ~/.flutter-tools
 
-# alias 제거 (Shell에 맞게 선택)
-# zsh
+# alias 제거 (zsh)
 sed -i '' '/flutter-fix\|ffand\|ffios/d' ~/.zshrc
 source ~/.zshrc
 
-# bash  
-sed -i '/flutter-fix\|ffand\|ffios/d' ~/.bashrc
+# bash 사용 시
+sed -i '' '/flutter-fix\|ffand\|ffios/d' ~/.bashrc
 source ~/.bashrc
-
-# fish
-sed -i '/flutter-fix\|ffand\|ffios/d' ~/.config/fish/config.fish
 ```
 
 ## 🤝 기여하기
@@ -216,7 +219,7 @@ sed -i '/flutter-fix\|ffand\|ffios/d' ~/.config/fish/config.fish
 
 ## 📚 자세한 문서
 
-더 자세한 사용법과 문제 해결 방법은 [공식 문서](https://flutterkage2k.github.io/mkdocspdflutterguide/)를 참고하세요.
+더 자세한 사용법과 문제 해결 방법은 [공식 문서](https://pdflutter.kage2kapp.org/flutter/4_flutter_fix_guide/)를 참고하세요.
 
 ## 📄 라이선스
 
