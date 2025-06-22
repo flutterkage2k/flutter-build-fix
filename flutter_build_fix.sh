@@ -5,7 +5,7 @@
 # 
 # Repository: https://github.com/flutterkage2k/flutter-build-fix
 # Author: Heesung Jin (kage2k)
-# Version: 2.2.0
+# Version: 2.2.1
 # =============================================================================
 
 set -e
@@ -20,7 +20,7 @@ PURPLE='\033[0;35m'
 NC='\033[0m'
 
 # 버전 정보
-SCRIPT_VERSION="2.2.0"
+SCRIPT_VERSION="2.2.1"
 
 # GitHub 업데이트 확인
 REPO="flutterkage2k/flutter-build-fix"
@@ -36,6 +36,26 @@ log_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
 log_error()   { echo -e "${RED}❌ $1${NC}"; }
 log_step()    { echo -e "${CYAN}🔧 $1${NC}"; }
 log_fun()     { echo -e "${PURPLE}$1${NC}"; }
+
+# 안전한 삭제 함수 추가 (v2.2.1 새로운 기능)
+safe_remove() {
+    local path="$1"
+    local description="$2"
+    
+    if [ -d "$path" ] || [ -f "$path" ]; then
+        if rm -rf "$path" 2>/dev/null; then
+            log_success "$description 삭제됨"
+            return 0
+        else
+            log_warning "$description 삭제 실패 (사용 중이거나 권한 부족)"
+            log_info "💡 수동 삭제 방법: sudo rm -rf $path"
+            return 1
+        fi
+    else
+        log_info "$description 경로가 존재하지 않음 (정상)"
+        return 0
+    fi
+}
 
 # macOS 체크
 check_macos() {
@@ -72,7 +92,7 @@ show_help() {
 # 버전 정보 표시
 show_version() {
     echo "Flutter Build Fix v$SCRIPT_VERSION"
-    echo "보수적 Gradle 관리 | macOS 전용"
+    echo "보수적 Gradle 관리 | macOS 전용 | 안전한 에러 처리"
     echo "안정 Gradle 버전: ${STABLE_GRADLE_VERSIONS[*]}"
 }
 
@@ -217,10 +237,8 @@ setup_java17() {
 clean_flutter() {
     log_step "Flutter 캐시 정리"
     
-    if [ -d "build" ]; then
-        rm -rf build
-        log_success "build 폴더 삭제됨"
-    fi
+    # 안전한 삭제 사용 (v2.2.1 개선)
+    safe_remove "build" "build 폴더"
     
     flutter clean > /dev/null 2>&1
     log_success "flutter clean 완료"
@@ -415,7 +433,7 @@ test_gradle_build() {
     fi
 }
 
-# 보수적 Gradle 정리 및 관리
+# 보수적 Gradle 정리 및 관리 (v2.2.1 안전한 에러 처리 적용)
 clean_gradle_conservative() {
     log_step "Gradle 보수적 정리 및 안전 관리"
     
@@ -433,16 +451,9 @@ clean_gradle_conservative() {
         log_success "Android Gradle Daemon 종료됨"
     fi
     
-    # Gradle 캐시 선택적 삭제 (너무 공격적이지 않게)
-    if [ -d "$HOME/.gradle/caches/modules-2" ]; then
-        rm -rf "$HOME/.gradle/caches/modules-2"
-        log_success "Gradle 모듈 캐시 정리됨"
-    fi
-    
-    if [ -d "android/.gradle" ]; then
-        rm -rf "android/.gradle"
-        log_success "로컬 Gradle 캐시 삭제됨"
-    fi
+    # 안전한 캐시 삭제 (v2.2.1 개선된 에러 처리)
+    safe_remove "$HOME/.gradle/caches/modules-2" "Gradle 모듈 캐시"
+    safe_remove "android/.gradle" "로컬 Gradle 캐시"
     
     # 보수적 버전 업데이트
     conservative_gradle_update
@@ -465,7 +476,7 @@ clean_gradle_conservative() {
     fi
 }
 
-# iOS 정리
+# iOS 정리 (v2.2.1 안전한 에러 처리 적용)
 clean_ios() {
     log_step "iOS 환경 정리"
     
@@ -476,16 +487,9 @@ clean_ios() {
     
     cd ios
     
-    # Pods 완전 정리
-    if [ -d "Pods" ]; then
-        rm -rf Pods
-        log_success "Pods 폴더 삭제됨"
-    fi
-    
-    if [ -f "Podfile.lock" ]; then
-        rm -f Podfile.lock
-        log_success "Podfile.lock 삭제됨"
-    fi
+    # 안전한 Pods 정리 (v2.2.1 개선)
+    safe_remove "Pods" "Pods 폴더"
+    safe_remove "Podfile.lock" "Podfile.lock"
     
     # CocoaPods 캐시 정리
     if command -v pod >/dev/null 2>&1; then
@@ -513,19 +517,19 @@ clean_ios() {
     
     cd ..
     
-    # Xcode 캐시 정리
+    # 안전한 Xcode 캐시 정리 (v2.2.1 개선)
     log_step "Xcode 캐시 정리"
     
-    local derived_data="$HOME/Library/Developer/Xcode/DerivedData"
-    if [ -d "$derived_data" ]; then
-        rm -rf "$derived_data"
-        log_success "Xcode DerivedData 삭제됨"
-    fi
+    safe_remove "$HOME/Library/Developer/Xcode/DerivedData" "Xcode DerivedData"
     
+    # 30일 이상된 Archives 정리 (실패해도 계속 진행)
     local archives="$HOME/Library/Developer/Xcode/Archives"
     if [ -d "$archives" ]; then
-        find "$archives" -name "*.xcarchive" -mtime +30 -delete 2>/dev/null || true
-        log_success "30일 이상된 Xcode Archives 정리됨"
+        if find "$archives" -name "*.xcarchive" -mtime +30 -delete 2>/dev/null; then
+            log_success "30일 이상된 Xcode Archives 정리됨"
+        else
+            log_info "Xcode Archives 정리 건너뜀 (권한 또는 파일 없음)"
+        fi
     fi
 }
 
