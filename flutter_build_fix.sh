@@ -5,7 +5,7 @@
 # 
 # Repository: https://github.com/flutterkage2k/flutter-build-fix
 # Author: Heesung Jin (kage2k)
-# Version: 2.2.1
+# Version: 2.2.2
 # =============================================================================
 
 set -e
@@ -20,7 +20,7 @@ PURPLE='\033[0;35m'
 NC='\033[0m'
 
 # 버전 정보
-SCRIPT_VERSION="2.2.1"
+SCRIPT_VERSION="2.2.2"
 
 # GitHub 업데이트 확인
 REPO="flutterkage2k/flutter-build-fix"
@@ -37,7 +37,7 @@ log_error()   { echo -e "${RED}❌ $1${NC}"; }
 log_step()    { echo -e "${CYAN}🔧 $1${NC}"; }
 log_fun()     { echo -e "${PURPLE}$1${NC}"; }
 
-# 안전한 삭제 함수 추가 (v2.2.1 새로운 기능)
+# 안전한 삭제 함수 추가 (v2.2.2 새로운 기능)
 safe_remove() {
     local path="$1"
     local description="$2"
@@ -104,8 +104,8 @@ check_for_updates() {
         
         if [ -n "$latest_version" ] && [ "$latest_version" != "v$SCRIPT_VERSION" ]; then
             echo ""
-            log_warning "🔔 새 버전이 있습니다: $latest_version (현재: v$SCRIPT_VERSION)"
-            echo -e "${CYAN}🔄 업데이트: curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh -o install.sh && zsh install.sh${NC}"
+            log_warning "📢 새 버전이 있습니다: $latest_version (현재: v$SCRIPT_VERSION)"
+            echo -e "${CYAN}📄 업데이트: curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh -o install.sh && zsh install.sh${NC}"
             echo ""
         fi
     fi
@@ -125,8 +125,8 @@ check_flutter_project() {
 }
 
 # 재미있는 메시지 배열 (더 빨리 나오도록 조정)
-declare -a MESSAGES_15S=("⏱️  빌드 준비 중... 잠시만요!" "🔄 의존성 확인 중..." "📦 패키지 정리 중...")
-declare -a MESSAGES_30S=("☕ 조금만 기다려주세요... 커피 한 모금 어때요?" "🎵 거의 다 됐어요... 좋아하는 노래 한 소절!" "📱 Flutter가 열심히 일하고 있어요...")
+declare -a MESSAGES_15S=("⏱️  빌드 준비 중... 잠시만요!" "📄 의존성 확인 중..." "📦 패키지 정리 중...")
+declare -a MESSAGES_30S=("☕ 조금만 기다려주세요... 커피 한 모금 어때요?" "🎵 거의 다 끝났어요... 좋아하는 노래 한 소절!" "📱 Flutter가 열심히 일하고 있어요...")
 declare -a MESSAGES_1M=("🍕 아직도 빌드 중... 오늘 점심 뭐 드실래요?" "📚 책 한 페이지라도 읽어볼까요?" "🚀 복잡한 의존성을 정리하는 중... 거의 끝!")
 declare -a MESSAGES_2M=("😅 참아주세요... 이것도 개발의 일부에요!" "🏃‍♂️ 스트레칭이라도 한번 해볼까요?" "🧘‍♀️ 심호흡... 곧 끝날 거예요!" "🎯 마지막 단계예요... 조금만 더 인내!")
 
@@ -196,48 +196,76 @@ show_progress_with_fun() {
 setup_java17() {
     log_step "Java 17 환경 설정"
     
-    # Homebrew Java 17 경로들
-    local java_paths=(
-        "/opt/homebrew/opt/openjdk@17"
-        "/usr/local/opt/openjdk@17"
-        "/Library/Java/JavaVirtualMachines/openjdk-17.jdk/Contents/Home"
-        "/opt/homebrew/Cellar/openjdk@17/*/libexec/openjdk.jdk/Contents/Home"
-    )
+    # /usr/libexec/java_home 우선 사용 (가장 정확한 방법)
+    local java_home_path
+    java_home_path=$(/usr/libexec/java_home -v17 2>/dev/null || true)
     
-    local java_home=""
-    
-    # Java 17 경로 탐색
-    for path in "${java_paths[@]}"; do
-        # 와일드카드 경로 확장
-        local expanded_paths=($path)
-        for expanded_path in "${expanded_paths[@]}"; do
-            if [ -d "$expanded_path" ] && [ -x "$expanded_path/bin/java" ]; then
-                java_home="$expanded_path"
-                break 2
-            fi
-        done
-    done
-    
-    if [ -n "$java_home" ]; then
-        export JAVA_HOME="$java_home"
-        export PATH="$JAVA_HOME/bin:$PATH"
-        log_success "Java 17 설정됨: $JAVA_HOME"
-        
-        local java_version
-        java_version=$("$JAVA_HOME/bin/java" -version 2>&1 | head -n1 | cut -d'"' -f2)
-        log_info "Java 버전: $java_version"
+    if [ -n "$java_home_path" ]; then
+        export JAVA_HOME="$java_home_path"
+        log_info "✅ /usr/libexec/java_home으로 Java 17 발견: $JAVA_HOME"
     else
-        log_warning "Java 17을 찾을 수 없습니다"
-        log_info "설치 방법: brew install openjdk@17"
-        log_info "시스템 등록: sudo ln -sfn /opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk /Library/Java/JavaVirtualMachines/openjdk-17.jdk"
+        # Homebrew 경로들을 올바른 전체 경로로 체크
+        local java_paths=(
+            "/opt/homebrew/Cellar/openjdk@17/*/libexec/openjdk.jdk/Contents/Home"
+            "/usr/local/Cellar/openjdk@17/*/libexec/openjdk.jdk/Contents/Home"
+            "/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+            "/usr/local/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+            "/Library/Java/JavaVirtualMachines/openjdk-17.jdk/Contents/Home"
+        )
+        
+        local java_home=""
+        
+        # Java 17 경로 탐색
+        for path in "${java_paths[@]}"; do
+            # 와일드카드 경로 확장
+            local expanded_paths=($path)
+            for expanded_path in "${expanded_paths[@]}"; do
+                if [ -d "$expanded_path" ] && [ -x "$expanded_path/bin/java" ]; then
+                    java_home="$expanded_path"
+                    break 2
+                fi
+            done
+        done
+        
+        if [ -n "$java_home" ]; then
+            export JAVA_HOME="$java_home"
+            log_info "✅ Homebrew에서 Java 17 발견: $JAVA_HOME"
+        else
+            log_error "Java 17을 찾을 수 없습니다!"
+            log_info "💡 해결 방법:"
+            echo "   1. brew install openjdk@17"
+            echo "   2. brew link openjdk@17"
+            exit 1
+        fi
     fi
+    
+    export PATH="$JAVA_HOME/bin:$PATH"
+    
+    # local.properties에 java.home 명시적 설정
+    if [ -f "android/local.properties" ]; then
+        # 기존 java.home 라인 제거
+        sed -i.bak '/^java\.home=/d' android/local.properties
+        # 새로운 java.home 추가
+        echo "java.home=$JAVA_HOME" >> android/local.properties
+        log_success "local.properties에 java.home 설정 완료"
+    fi
+    
+    # Flutter config에도 Java path 설정
+    flutter config --jdk-dir "$JAVA_HOME" > /dev/null 2>&1 || true
+    
+    # 설정 확인
+    echo "📋 현재 Java 설정:"
+    echo "   JAVA_HOME: $JAVA_HOME"
+    java -version 2>&1 | head -1
+    
+    log_success "Java 17 설정 완료"
 }
 
 # Flutter 정리
 clean_flutter() {
     log_step "Flutter 캐시 정리"
     
-    # 안전한 삭제 사용 (v2.2.1 개선)
+    # 안전한 삭제 사용 (v2.2.2 개선)
     safe_remove "build" "build 폴더"
     
     flutter clean > /dev/null 2>&1
@@ -299,7 +327,7 @@ get_conservative_gradle_version() {
     echo "${STABLE_GRADLE_VERSIONS[0]}"
 }
 
-# Configuration Cache 및 안전 설정
+# Configuration Cache 및 안전 설정 + minSdkVersion 설정
 configure_gradle_safely() {
     local gradle_props="android/gradle.properties"
     
@@ -313,7 +341,7 @@ configure_gradle_safely() {
         grep -v "# Flutter Build Fix" "$gradle_props" > "${gradle_props}.tmp" || true
         mv "${gradle_props}.tmp" "$gradle_props"
         
-        # 보수적이고 안전한 설정 추가
+        # 보수적이고 안전한 설정 추가 + minSdkVersion 26 설정
         {
             echo ""
             echo "# Flutter Build Fix 안전 설정 v$SCRIPT_VERSION"
@@ -328,9 +356,11 @@ configure_gradle_safely() {
             echo "# 호환성을 위한 보수적 설정"
             echo "org.gradle.caching=false"
             echo "org.gradle.configureondemand=false"
+            echo "# Flutter 2025 권장 minSdkVersion"
+            echo "flutter.minSdkVersion=26"
         } >> "$gradle_props"
         
-        log_success "Gradle 안전 설정 완료"
+        log_success "Gradle 안전 설정 완료 (minSdkVersion 26 포함)"
     fi
 }
 
@@ -433,7 +463,7 @@ test_gradle_build() {
     fi
 }
 
-# 보수적 Gradle 정리 및 관리 (v2.2.1 안전한 에러 처리 적용)
+# 보수적 Gradle 정리 및 관리 (v2.2.2 안전한 에러 처리 적용)
 clean_gradle_conservative() {
     log_step "Gradle 보수적 정리 및 안전 관리"
     
@@ -451,7 +481,7 @@ clean_gradle_conservative() {
         log_success "Android Gradle Daemon 종료됨"
     fi
     
-    # 안전한 캐시 삭제 (v2.2.1 개선된 에러 처리)
+    # 안전한 캐시 삭제 (v2.2.2 개선된 에러 처리)
     safe_remove "$HOME/.gradle/caches/modules-2" "Gradle 모듈 캐시"
     safe_remove "android/.gradle" "로컬 Gradle 캐시"
     
@@ -476,7 +506,7 @@ clean_gradle_conservative() {
     fi
 }
 
-# iOS 정리 (v2.2.1 안전한 에러 처리 적용)
+# iOS 정리 (v2.2.2 안전한 에러 처리 적용)
 clean_ios() {
     log_step "iOS 환경 정리"
     
@@ -487,7 +517,7 @@ clean_ios() {
     
     cd ios
     
-    # 안전한 Pods 정리 (v2.2.1 개선)
+    # 안전한 Pods 정리 (v2.2.2 개선)
     safe_remove "Pods" "Pods 폴더"
     safe_remove "Podfile.lock" "Podfile.lock"
     
@@ -517,7 +547,7 @@ clean_ios() {
     
     cd ..
     
-    # 안전한 Xcode 캐시 정리 (v2.2.1 개선)
+    # 안전한 Xcode 캐시 정리 (v2.2.2 개선)
     log_step "Xcode 캐시 정리"
     
     safe_remove "$HOME/Library/Developer/Xcode/DerivedData" "Xcode DerivedData"
