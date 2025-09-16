@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 
 # =============================================================================
-# Flutter Build Fix - Universal (Groovy + Kotlin DSL) 지원
+# Flutter Build Fix - Universal (Groovy + Kotlin DSL) Support
 # 
 # Repository: https://github.com/flutterkage2k/flutter-build-fix
 # Author: Heesung Jin (kage2k)
-# Version: 3.0.0 - Universal DSL Support
+# Version: 3.3.0 - Improved Automation & 16KB Support
 # =============================================================================
 
 set -e
 
-# 색상 설정
+# Color definitions
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -19,30 +19,137 @@ CYAN='\033[0;36m'
 PURPLE='\033[0;35m'
 NC='\033[0m'
 
-# 버전 정보
-SCRIPT_VERSION="3.0.0"
+# Version information
+SCRIPT_VERSION="3.3.0"
 REPO="flutterkage2k/flutter-build-fix"
 
-# 안정적인 Gradle 버전 목록 (2025년 8월 업데이트)
-STABLE_GRADLE_VERSIONS=("8.11.1" "8.10" "8.9" "8.6")
+# Flutter 3.35.3 optimized version list (September 2025 update)
+STABLE_GRADLE_VERSIONS=("8.12" "8.11.1" "8.10" "8.9")
+RECOMMENDED_AGP_VERSION="8.7.3"
+RECOMMENDED_KOTLIN_VERSION="2.1.0"
+RECOMMENDED_GRADLE_VERSION="8.12"
 
-# 로그 함수들
-log_info()    { echo -e "${BLUE}ℹ️  $1${NC}"; }
-log_success() { echo -e "${GREEN}✅ $1${NC}"; }
-log_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
-log_error()   { echo -e "${RED}❌ $1${NC}"; }
-log_step()    { echo -e "${CYAN}🔧 $1${NC}"; }
+# 16KB page size support minimum requirements (Google Play mandatory Nov 1, 2025)
+REQUIRED_NDK_VERSION_CODE="13846066"
+REQUIRED_NDK_VERSION="29.0.13846066"
+MINIMUM_AGP_FOR_16KB="8.5.1"
+
+# Execution mode flags
+INTERACTIVE_MODE=true
+AUTO_MODE=false
+DRY_RUN_MODE=false
+FORCE_MODE=false
+
+# Log functions
+log_info()    { echo -e "${BLUE}[INFO] $1${NC}"; }
+log_success() { echo -e "${GREEN}[SUCCESS] $1${NC}"; }
+log_warning() { echo -e "${YELLOW}[WARNING] $1${NC}"; }
+log_error()   { echo -e "${RED}[ERROR] $1${NC}"; }
+log_step()    { echo -e "${CYAN}[STEP] $1${NC}"; }
 log_fun()     { echo -e "${PURPLE}$1${NC}"; }
+log_dry_run() { echo -e "${YELLOW}[DRY-RUN] $1${NC}"; }
 
-# =============================================================================
-# 🎯 핵심: 프로젝트 타입 스마트 감지 시스템
-# =============================================================================
+# Parse command line arguments
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --interactive)
+                INTERACTIVE_MODE=true
+                AUTO_MODE=false
+                shift
+                ;;
+            --auto)
+                INTERACTIVE_MODE=false
+                AUTO_MODE=true
+                shift
+                ;;
+            --dry-run)
+                DRY_RUN_MODE=true
+                log_info "Dry-run mode enabled - no changes will be made"
+                shift
+                ;;
+            --force)
+                FORCE_MODE=true
+                INTERACTIVE_MODE=false
+                log_info "Force mode enabled - all confirmations will be skipped"
+                shift
+                ;;
+            --help|-h)
+                show_help
+                exit 0
+                ;;
+            --version|-v)
+                show_version
+                exit 0
+                ;;
+            --android|--ios|--full)
+                # Store mode for later processing
+                EXECUTION_MODE=$1
+                shift
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                show_help
+                exit 1
+                ;;
+        esac
+    done
+}
 
-# 프로젝트 타입 감지 (Kotlin DSL vs Groovy DSL)
-detect_gradle_type() {
-    log_step "Gradle 프로젝트 타입 자동 감지 중..."
+# Smart confirmation function
+confirm_action() {
+    local message="$1"
+    local default_yes="${2:-false}"
     
-    # 1순위: settings 파일로 판단
+    if [[ "$FORCE_MODE" == "true" ]] || [[ "$AUTO_MODE" == "true" ]]; then
+        if [[ "$default_yes" == "true" ]]; then
+            log_info "$message (auto-confirmed: yes)"
+            return 0
+        else
+            log_info "$message (auto-confirmed: no)"
+            return 1
+        fi
+    fi
+    
+    if [[ "$INTERACTIVE_MODE" == "true" ]]; then
+        read -p "$message (y/n) " -n 1 -r
+        echo
+        [[ $REPLY =~ ^[Yy]$ ]]
+    else
+        # Default behavior when not interactive
+        [[ "$default_yes" == "true" ]]
+    fi
+}
+
+# Safe file modification with dry-run support
+safe_modify_file() {
+    local file="$1"
+    local description="$2"
+    local modification_func="$3"
+    
+    if [[ "$DRY_RUN_MODE" == "true" ]]; then
+        log_dry_run "Would modify: $file ($description)"
+        return 0
+    fi
+    
+    if [ -f "$file" ]; then
+        cp "$file" "${file}.backup.$(date +%s)"
+        eval "$modification_func"
+        log_success "Modified: $file ($description)"
+    else
+        log_warning "File not found: $file"
+        return 1
+    fi
+}
+
+# =============================================================================
+# Core: Smart Project Type Detection System
+# =============================================================================
+
+detect_gradle_type() {
+    log_step "Detecting Gradle project type..."
+    
+    # Priority 1: settings file
     if [ -f "android/settings.gradle.kts" ]; then
         echo "kotlin_dsl"
         return 0
@@ -51,7 +158,7 @@ detect_gradle_type() {
         return 0
     fi
     
-    # 2순위: app build 파일로 판단
+    # Priority 2: app build file
     if [ -f "android/app/build.gradle.kts" ]; then
         echo "kotlin_dsl"
         return 0
@@ -60,7 +167,7 @@ detect_gradle_type() {
         return 0
     fi
     
-    # 3순위: 루트 build 파일로 판단
+    # Priority 3: root build file
     if [ -f "android/build.gradle.kts" ]; then
         echo "kotlin_dsl"
         return 0
@@ -73,443 +180,502 @@ detect_gradle_type() {
     return 1
 }
 
-# 프로젝트 구조 상세 분석
 analyze_project_structure() {
     local gradle_type="$1"
     
-    log_info "📊 프로젝트 구조 분석 결과:"
+    log_info "Project structure analysis:"
     
     case "$gradle_type" in
         "kotlin_dsl")
-            log_success "🔷 Kotlin DSL 프로젝트 감지 (Flutter 3.29+ 신규 방식)"
-            log_info "   └─ settings.gradle.kts: $([ -f "android/settings.gradle.kts" ] && echo "✅" || echo "❌")"
-            log_info "   └─ app/build.gradle.kts: $([ -f "android/app/build.gradle.kts" ] && echo "✅" || echo "❌")"
-            log_info "   └─ build.gradle.kts: $([ -f "android/build.gradle.kts" ] && echo "✅" || echo "❌")"
+            log_success "Kotlin DSL project detected (Flutter 3.29+ new style)"
+            log_info "   - settings.gradle.kts: $([ -f "android/settings.gradle.kts" ] && echo "found" || echo "missing")"
+            log_info "   - app/build.gradle.kts: $([ -f "android/app/build.gradle.kts" ] && echo "found" || echo "missing")"
+            log_info "   - build.gradle.kts: $([ -f "android/build.gradle.kts" ] && echo "found" || echo "missing")"
+            
+            # Check 16KB page size support status
+            check_16kb_support_status "kotlin"
             ;;
         "groovy_dsl")
-            log_success "🟢 Groovy DSL 프로젝트 감지 (Flutter 3.28 이하 기존 방식)"
-            log_info "   └─ settings.gradle: $([ -f "android/settings.gradle" ] && echo "✅" || echo "❌")"
-            log_info "   └─ app/build.gradle: $([ -f "android/app/build.gradle" ] && echo "✅" || echo "❌")"
-            log_info "   └─ build.gradle: $([ -f "android/build.gradle" ] && echo "✅" || echo "❌")"
+            log_success "Groovy DSL project detected (Flutter 3.28 and earlier)"
+            log_info "   - settings.gradle: $([ -f "android/settings.gradle" ] && echo "found" || echo "missing")"
+            log_info "   - app/build.gradle: $([ -f "android/app/build.gradle" ] && echo "found" || echo "missing")"
+            log_info "   - build.gradle: $([ -f "android/build.gradle" ] && echo "found" || echo "missing")"
+            
+            # Check 16KB page size support status
+            check_16kb_support_status "groovy"
             ;;
         "unknown")
-            log_error "❓ 알 수 없는 프로젝트 구조"
-            log_info "Android 폴더가 존재하지 않거나 손상된 것 같습니다"
+            log_error "Unknown project structure"
+            log_info "Android folder does not exist or is corrupted"
             return 1
             ;;
     esac
     
-    # Flutter 버전 확인
+    # Check Flutter version
     if command -v flutter >/dev/null 2>&1; then
         local flutter_version=$(flutter --version | head -1 | grep -o 'Flutter [0-9.]*' | cut -d' ' -f2)
-        log_info "🎯 Flutter 버전: $flutter_version"
+        log_info "Flutter version: $flutter_version"
+    fi
+}
+
+check_16kb_support_status() {
+    local dsl_type="$1"
+    local build_file=""
+    
+    case "$dsl_type" in
+        "kotlin")
+            build_file="android/app/build.gradle.kts"
+            ;;
+        "groovy")
+            build_file="android/app/build.gradle"
+            ;;
+    esac
+    
+    if [ -f "$build_file" ]; then
+        local ndk_check=$(grep -o 'ndkVersion.*[0-9.]*' "$build_file" | head -1)
+        if [ -n "$ndk_check" ]; then
+            log_info "   - NDK setting: $ndk_check"
+            if echo "$ndk_check" | grep -q "flutter.ndkVersion"; then
+                log_warning "   - Using flutter.ndkVersion - 16KB support uncertain"
+                log_warning "   - Google Play requires 16KB support from Nov 1, 2025"
+            fi
+        else
+            log_info "   - NDK setting: not specified"
+        fi
     fi
 }
 
 # =============================================================================
-# 🔧 Kotlin DSL 전용 처리 함수들
+# 16KB Page Size Support Functions (RESTORED)
 # =============================================================================
 
-# Kotlin DSL settings.gradle.kts 업데이트
+update_ndk_version_for_16kb() {
+    local app_build_file="$1"
+    local file_type="$2"
+    
+    if [ ! -f "$app_build_file" ]; then
+        log_warning "App build file not found: $app_build_file"
+        return 1
+    fi
+    
+    log_step "Updating NDK version for 16KB page size support (Google Play mandatory)"
+    
+    # Check current NDK version
+    local current_ndk=$(grep -o 'ndkVersion.*[0-9.]*' "$app_build_file" | head -1)
+    if [ -n "$current_ndk" ]; then
+        log_info "Current NDK setting: $current_ndk"
+    fi
+    
+    # Ask for confirmation
+    if ! confirm_action "Update NDK to $REQUIRED_NDK_VERSION for 16KB support?" "true"; then
+        log_info "Skipping NDK version update"
+        return 0
+    fi
+    
+    local modification_func=""
+    case "$file_type" in
+        "kotlin")
+            modification_func="
+                if grep -q 'flutter.ndkVersion' '$app_build_file'; then
+                    sed -i '' 's/ndkVersion = flutter\.ndkVersion/ndkVersion = \"$REQUIRED_NDK_VERSION\"/g' '$app_build_file'
+                elif grep -q 'ndkVersion' '$app_build_file'; then
+                    sed -i '' 's/ndkVersion = \"[^\"]*\"/ndkVersion = \"$REQUIRED_NDK_VERSION\"/g' '$app_build_file'
+                else
+                    sed -i '' '/android {/a\\
+    ndkVersion = \"$REQUIRED_NDK_VERSION\"\\
+' '$app_build_file'
+                fi
+            "
+            ;;
+        "groovy")
+            modification_func="
+                if grep -q 'flutter.ndkVersion' '$app_build_file'; then
+                    sed -i '' 's/ndkVersion flutter\.ndkVersion/ndkVersion \"$REQUIRED_NDK_VERSION\"/g' '$app_build_file'
+                    sed -i '' 's/ndkVersion = flutter\.ndkVersion/ndkVersion = \"$REQUIRED_NDK_VERSION\"/g' '$app_build_file'
+                elif grep -q 'ndkVersion' '$app_build_file'; then
+                    sed -i '' 's/ndkVersion \"[^\"]*\"/ndkVersion \"$REQUIRED_NDK_VERSION\"/g' '$app_build_file'
+                    sed -i '' 's/ndkVersion = \"[^\"]*\"/ndkVersion = \"$REQUIRED_NDK_VERSION\"/g' '$app_build_file'
+                else
+                    sed -i '' '/android {/a\\
+        ndkVersion \"$REQUIRED_NDK_VERSION\"\\
+' '$app_build_file'
+                fi
+            "
+            ;;
+    esac
+    
+    safe_modify_file "$app_build_file" "NDK version for 16KB support" "$modification_func"
+    
+    log_info "Performance improvement expected: 3-30% faster app startup, 4.5% better battery"
+    log_info "Compliance deadline: Google Play mandatory from Nov 1, 2025"
+}
+
+# =============================================================================
+# Kotlin DSL Processing Functions
+# =============================================================================
+
 update_kotlin_settings_gradle() {
     local settings_file="android/settings.gradle.kts"
     
     if [ ! -f "$settings_file" ]; then
-        log_warning "settings.gradle.kts 파일을 찾을 수 없습니다"
+        log_warning "settings.gradle.kts file not found"
         return 1
     fi
     
-    log_step "Kotlin DSL settings.gradle.kts 업데이트"
+    log_step "Updating Kotlin DSL settings.gradle.kts"
     
-    # 백업 생성
-    cp "$settings_file" "${settings_file}.backup"
+    local should_update=false
+    if confirm_action "Update AGP to $RECOMMENDED_AGP_VERSION and Kotlin to $RECOMMENDED_KOTLIN_VERSION?" "true"; then
+        should_update=true
+    fi
     
-    # AGP 버전 업데이트 (Kotlin DSL 문법)
-    sed -i '' 's/id("com.android.application") version "[^"]*"/id("com.android.application") version "8.6.0"/g' "$settings_file"
+    if [[ "$should_update" == "true" ]]; then
+        local modification_func="
+            sed -i '' 's/id(\"com.android.application\") version \"[^\"]*\"/id(\"com.android.application\") version \"$RECOMMENDED_AGP_VERSION\"/g' '$settings_file'
+            sed -i '' 's/id(\"org.jetbrains.kotlin.android\") version \"[^\"]*\"/id(\"org.jetbrains.kotlin.android\") version \"$RECOMMENDED_KOTLIN_VERSION\"/g' '$settings_file'
+        "
+        safe_modify_file "$settings_file" "AGP and Kotlin versions" "$modification_func"
+    else
+        log_info "Skipping version updates"
+    fi
     
-    # Kotlin 버전 업데이트 (2025년 권장)
-    sed -i '' 's/id("org.jetbrains.kotlin.android") version "[^"]*"/id("org.jetbrains.kotlin.android") version "2.0.20"/g' "$settings_file"
-    
-    log_success "settings.gradle.kts AGP 8.6.0, Kotlin 2.0.20으로 업데이트"
+    # Check Flutter 3.35.3 standard structure
+    if ! grep -q "dev.flutter.flutter-plugin-loader" "$settings_file"; then
+        log_info "Flutter 3.35.3 standard plugin-loader not found. Manual check recommended."
+    fi
 }
 
-# Kotlin DSL app/build.gradle.kts 업데이트
 update_kotlin_app_build() {
     local app_build_file="android/app/build.gradle.kts"
     
     if [ ! -f "$app_build_file" ]; then
-        log_warning "app/build.gradle.kts 파일을 찾을 수 없습니다"
+        log_warning "app/build.gradle.kts file not found"
         return 1
     fi
     
-    log_step "Kotlin DSL app/build.gradle.kts Java 17 호환성 설정"
+    log_step "Updating Kotlin DSL app/build.gradle.kts (Java 17 + 16KB support)"
     
-    # 백업 생성
-    cp "$app_build_file" "${app_build_file}.backup"
-    
-    # Java 17 compileOptions 확인 및 추가
+    # Java 17 compileOptions
     if ! grep -q "compileOptions" "$app_build_file"; then
-        # android 블록 안에 compileOptions 추가
-        sed -i '' '/android {/a\
-    compileOptions {\
-        sourceCompatibility = JavaVersion.VERSION_17\
-        targetCompatibility = JavaVersion.VERSION_17\
-    }\
-' "$app_build_file"
-        log_success "Java 17 compileOptions 추가됨"
+        local modification_func="
+            sed -i '' '/android {/a\\
+    compileOptions {\\
+        sourceCompatibility = JavaVersion.VERSION_17\\
+        targetCompatibility = JavaVersion.VERSION_17\\
+    }\\
+' '$app_build_file'
+        "
+        safe_modify_file "$app_build_file" "Java 17 compileOptions" "$modification_func"
     else
-        # 기존 compileOptions 업데이트
-        sed -i '' 's/sourceCompatibility = JavaVersion\.VERSION_[0-9_]*/sourceCompatibility = JavaVersion.VERSION_17/g' "$app_build_file"
-        sed -i '' 's/targetCompatibility = JavaVersion\.VERSION_[0-9_]*/targetCompatibility = JavaVersion.VERSION_17/g' "$app_build_file"
-        log_success "기존 compileOptions Java 17로 업데이트"
+        local modification_func="
+            sed -i '' 's/sourceCompatibility = JavaVersion\.VERSION_[0-9_]*/sourceCompatibility = JavaVersion.VERSION_17/g' '$app_build_file'
+            sed -i '' 's/targetCompatibility = JavaVersion\.VERSION_[0-9_]*/targetCompatibility = JavaVersion.VERSION_17/g' '$app_build_file'
+        "
+        safe_modify_file "$app_build_file" "Java 17 compileOptions update" "$modification_func"
     fi
     
-    # Kotlin JVM Target 확인 및 설정
+    # Kotlin JVM Target
     if grep -q "kotlinOptions" "$app_build_file"; then
-        # 기존 kotlinOptions 업데이트
-        sed -i '' 's/jvmTarget = "[^"]*"/jvmTarget = "17"/g' "$app_build_file"
-        log_success "kotlinOptions jvmTarget 17로 업데이트"
+        local modification_func="
+            sed -i '' 's/jvmTarget = \"[^\"]*\"/jvmTarget = \"17\"/g' '$app_build_file'
+        "
+        safe_modify_file "$app_build_file" "Kotlin JVM target update" "$modification_func"
     else
-        # kotlinOptions 새로 추가
-        sed -i '' '/compileOptions {/a\
-\
-    kotlinOptions {\
-        jvmTarget = "17"\
-    }\
-' "$app_build_file"
-        log_success "kotlinOptions jvmTarget 17 추가됨"
+        local modification_func="
+            sed -i '' '/compileOptions {/a\\
+\\
+    kotlinOptions {\\
+        jvmTarget = \"17\"\\
+    }\\
+' '$app_build_file'
+        "
+        safe_modify_file "$app_build_file" "Kotlin JVM target addition" "$modification_func"
     fi
     
-    # minSdk 26 이상 확인 (2025년 권장)
-    if grep -q "minSdk" "$app_build_file"; then
-        # minSdk 값 확인
-        local current_min_sdk=$(grep "minSdk" "$app_build_file" | grep -o '[0-9]*' | head -1)
-        if [ -n "$current_min_sdk" ] && [ "$current_min_sdk" -lt 26 ]; then
-            sed -i '' "s/minSdk = [0-9]*/minSdk = 26/g" "$app_build_file"
-            log_success "minSdk를 26으로 업데이트 (이전: $current_min_sdk)"
+    # Check minSdk
+    local current_min_sdk=$(grep "minSdk" "$app_build_file" | grep -o '[0-9]*' | head -1)
+    if [ -n "$current_min_sdk" ] && [ "$current_min_sdk" -lt 26 ]; then
+        if confirm_action "Update minSdk from $current_min_sdk to 26?" "true"; then
+            local modification_func="
+                sed -i '' 's/minSdk = [0-9]*/minSdk = 26/g' '$app_build_file'
+            "
+            safe_modify_file "$app_build_file" "minSdk update to 26" "$modification_func"
         fi
     fi
+    
+    # 16KB page size support NDK version update
+    update_ndk_version_for_16kb "$app_build_file" "kotlin"
 }
 
-# Kotlin DSL 전용 Gradle 설정
 configure_kotlin_dsl_gradle() {
-    log_step "🔷 Kotlin DSL 프로젝트 설정 시작"
-    
-    # 1. settings.gradle.kts 업데이트
+    log_step "Configuring Kotlin DSL project"
     update_kotlin_settings_gradle
-    
-    # 2. app/build.gradle.kts 업데이트
     update_kotlin_app_build
-    
-    # 3. gradle.properties 설정 (공통)
     configure_gradle_properties_universal
-    
-    # 4. Gradle Wrapper 업데이트 (공통)
     update_gradle_wrapper_universal
-    
-    log_success "🔷 Kotlin DSL 설정 완료"
+    log_success "Kotlin DSL configuration completed"
 }
 
 # =============================================================================
-# 🔧 Groovy DSL 전용 처리 함수들 (기존 + 개선)
+# Groovy DSL Processing Functions
 # =============================================================================
 
-# Groovy DSL settings.gradle 업데이트
 update_groovy_settings_gradle() {
     local settings_file="android/settings.gradle"
-    
     if [ ! -f "$settings_file" ]; then
-        log_warning "settings.gradle 파일을 찾을 수 없습니다"
+        log_warning "settings.gradle file not found"
         return 1
     fi
     
-    log_step "Groovy DSL settings.gradle 업데이트"
+    log_step "Updating Groovy DSL settings.gradle"
     
-    # 백업 생성
-    cp "$settings_file" "${settings_file}.backup"
-    
-    # AGP 버전 업데이트 (Groovy DSL 문법)
-    sed -i '' 's/id "com.android.application" version "[^"]*"/id "com.android.application" version "8.6.0"/g' "$settings_file"
-    
-    # Kotlin 버전 업데이트
-    sed -i '' 's/id "org.jetbrains.kotlin.android" version "[^"]*"/id "org.jetbrains.kotlin.android" version "2.0.20"/g' "$settings_file"
-    
-    log_success "settings.gradle AGP 8.6.0, Kotlin 2.0.20으로 업데이트"
+    if confirm_action "Update AGP to $RECOMMENDED_AGP_VERSION and Kotlin to $RECOMMENDED_KOTLIN_VERSION?" "true"; then
+        local modification_func="
+            sed -i '' 's/id \"com.android.application\" version \"[^\"]*\"/id \"com.android.application\" version \"$RECOMMENDED_AGP_VERSION\"/g' '$settings_file'
+            sed -i '' 's/id \"org.jetbrains.kotlin.android\" version \"[^\"]*\"/id \"org.jetbrains.kotlin.android\" version \"$RECOMMENDED_KOTLIN_VERSION\"/g' '$settings_file'
+        "
+        safe_modify_file "$settings_file" "AGP and Kotlin versions" "$modification_func"
+    else
+        log_info "Skipping version updates"
+    fi
 }
 
-# Groovy DSL app/build.gradle 업데이트 (기존 함수 개선)
 update_groovy_app_build() {
     local app_build_file="android/app/build.gradle"
-    
     if [ ! -f "$app_build_file" ]; then
-        log_warning "app/build.gradle 파일을 찾을 수 없습니다"
+        log_warning "app/build.gradle file not found"
         return 1
     fi
     
-    log_step "Groovy DSL app/build.gradle Java 17 호환성 설정"
+    log_step "Updating Groovy DSL app/build.gradle (Java 17 + 16KB support)"
     
-    # 백업 생성
-    cp "$app_build_file" "${app_build_file}.backup"
+    # Java 17 compatibility
+    local modification_func="
+        sed -i '' 's/jvmTarget.*21/jvmTarget = '\''17'\''/g' '$app_build_file'
+        sed -i '' 's/jvmTarget.*= '\''21'\''/jvmTarget = '\''17'\''/g' '$app_build_file'
+        sed -i '' 's/jvmTarget.*= \"21\"/jvmTarget = \"17\"/g' '$app_build_file'
+        sed -i '' 's/JavaVersion\.VERSION_21/JavaVersion.VERSION_17/g' '$app_build_file'
+    "
+    safe_modify_file "$app_build_file" "Java 17 compatibility" "$modification_func"
     
-    # Kotlin JVM target 수정 (Groovy 문법)
-    sed -i '' 's/jvmTarget.*21/jvmTarget = '\''17'\''/g' "$app_build_file"
-    sed -i '' 's/jvmTarget.*= '\''21'\''/jvmTarget = '\''17'\''/g' "$app_build_file"
-    sed -i '' 's/jvmTarget.*= "21"/jvmTarget = "17"/g' "$app_build_file"
-    
-    # Java 호환성도 17로 설정
-    sed -i '' 's/JavaVersion\.VERSION_21/JavaVersion.VERSION_17/g' "$app_build_file"
-    
-    log_success "Groovy DSL Java 17 호환성 설정 완료"
+    # 16KB page size support NDK version update
+    update_ndk_version_for_16kb "$app_build_file" "groovy"
 }
 
-# Groovy DSL 전용 Gradle 설정
 configure_groovy_dsl_gradle() {
-    log_step "🟢 Groovy DSL 프로젝트 설정 시작"
-    
-    # 1. settings.gradle 업데이트 (있는 경우)
+    log_step "Configuring Groovy DSL project"
     if [ -f "android/settings.gradle" ]; then
         update_groovy_settings_gradle
     fi
-    
-    # 2. app/build.gradle 업데이트
     update_groovy_app_build
-    
-    # 3. gradle.properties 설정 (공통)
     configure_gradle_properties_universal
-    
-    # 4. Gradle Wrapper 업데이트 (공통)
     update_gradle_wrapper_universal
-    
-    log_success "🟢 Groovy DSL 설정 완료"
+    log_success "Groovy DSL configuration completed"
 }
 
 # =============================================================================
-# 🌐 범용 공통 함수들
+# Universal Common Functions
 # =============================================================================
 
-# 범용 Gradle Wrapper 업데이트 (DSL 타입 무관)
 update_gradle_wrapper_universal() {
     local wrapper_props="android/gradle/wrapper/gradle-wrapper.properties"
-    local recommended_version="8.11.1"
+    local recommended_version="$RECOMMENDED_GRADLE_VERSION"
     
     if [ ! -f "$wrapper_props" ]; then
-        log_error "gradle-wrapper.properties 파일을 찾을 수 없습니다"
+        log_error "gradle-wrapper.properties file not found"
         return 1
     fi
     
-    log_step "Gradle Wrapper 버전 업데이트"
+    log_step "Updating Gradle Wrapper version"
     
-    # 현재 버전 확인
     local current_gradle=$(grep "gradle-.*-all.zip" "$wrapper_props" | sed -E 's/.*gradle-([0-9.]+)-all.zip.*/\1/')
-    log_info "현재 Gradle 버전: $current_gradle"
-    log_info "권장 Gradle 버전: $recommended_version"
+    log_info "Current Gradle version: $current_gradle"
     
     if [ "$current_gradle" != "$recommended_version" ]; then
-        # 백업 생성
-        cp "$wrapper_props" "${wrapper_props}.backup"
-        
-        # 안전한 버전으로 업데이트
-        sed -i '' "s|gradle-.*-all\.zip|gradle-${recommended_version}-all.zip|g" "$wrapper_props"
-        log_success "Gradle $recommended_version로 업데이트됨"
+        if confirm_action "Update Gradle Wrapper to $recommended_version?" "true"; then
+            local modification_func="
+                sed -i '' 's|gradle-.*-all\.zip|gradle-$recommended_version-all.zip|g' '$wrapper_props'
+            "
+            safe_modify_file "$wrapper_props" "Gradle Wrapper version" "$modification_func"
+        else
+            log_info "Skipping Gradle Wrapper update"
+        fi
     else
-        log_success "현재 Gradle 버전이 이미 최적입니다"
+        log_success "Current Gradle version is already up to date"
     fi
 }
 
-# 범용 gradle.properties 설정 (DSL 타입 무관)
 configure_gradle_properties_universal() {
     local gradle_props="android/gradle.properties"
     
     if [ ! -f "$gradle_props" ]; then
-        log_warning "gradle.properties 파일을 찾을 수 없습니다"
+        log_warning "gradle.properties file not found"
         return 1
     fi
     
-    log_step "범용 gradle.properties 최적화 설정"
+    log_step "Configuring Flutter 3.35.3 optimized gradle.properties"
     
-    # 백업 생성
-    cp "$gradle_props" "${gradle_props}.backup"
-    
-    # 기존 Flutter Build Fix 설정 제거
-    grep -v "# Flutter Build Fix" "$gradle_props" > "${gradle_props}.tmp" || true
-    mv "${gradle_props}.tmp" "$gradle_props"
-    
-    # 2025년 최적화된 설정 추가
-    {
-        echo ""
-        echo "# Flutter Build Fix 범용 설정 v$SCRIPT_VERSION"
-        echo "# Java 17 + Gradle 8.11.1 최적화"
-        echo "org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m"
-        echo "org.gradle.parallel=true"
-        echo "org.gradle.daemon=true"
-        echo "org.gradle.configuration-cache=true"
-        echo "org.gradle.configuration-cache.problems=warn"
-        echo "org.gradle.caching=true"
-        echo ""
-        echo "# Android 표준 설정"
-        echo "android.useAndroidX=true"
-        echo "android.enableJetifier=true"
-        echo ""
-        echo "# 2025년 권장 설정"
-        echo "flutter.minSdkVersion=26"
-        echo "kotlin.jvm.target.validation.mode=warning"
-        echo ""
-        echo "# Kotlin DSL 호환성"
-        echo "org.gradle.kotlin.dsl.allWarningsAsErrors=false"
-        echo "kotlin.daemon.jvm.options=-Xmx2048m"
-    } >> "$gradle_props"
-    
-    log_success "범용 gradle.properties 설정 완료"
+    if confirm_action "Apply Gradle optimization settings? (6GB memory, parallel builds, etc.)" "true"; then
+        local modification_func="
+            grep -v '# Flutter Build Fix' '$gradle_props' > '${gradle_props}.tmp' || true
+            mv '${gradle_props}.tmp' '$gradle_props'
+            cat >> '$gradle_props' << 'EOF'
+
+# Flutter Build Fix v$SCRIPT_VERSION - Flutter 3.35.3 Optimization
+# Java 17 + Gradle $RECOMMENDED_GRADLE_VERSION + AGP $RECOMMENDED_AGP_VERSION
+# Flutter 3.35.3 performance optimized memory settings
+org.gradle.jvmargs=-Xmx6G -XX:MaxMetaspaceSize=1G -XX:ReservedCodeCacheSize=512m -XX:+HeapDumpOnOutOfMemoryError
+org.gradle.parallel=true
+org.gradle.daemon=true
+org.gradle.configuration-cache=true
+org.gradle.configuration-cache.problems=warn
+org.gradle.caching=true
+
+# Android standard settings
+android.useAndroidX=true
+android.enableJetifier=true
+
+# Flutter 3.35.3 recommended settings
+flutter.minSdkVersion=26
+kotlin.jvm.target.validation.mode=warning
+
+# Kotlin DSL and performance optimization
+org.gradle.kotlin.dsl.allWarningsAsErrors=false
+kotlin.daemon.jvm.options=-Xmx3072m
+org.gradle.unsafe.configuration-cache=true
+
+# Flutter 3.35.3 build performance improvements
+org.gradle.workers.max=4
+kotlin.incremental=true
+kotlin.incremental.useClasspathSnapshot=true
+EOF
+        "
+        safe_modify_file "$gradle_props" "Flutter 3.35.3 optimization settings" "$modification_func"
+    else
+        log_info "Skipping gradle.properties optimization"
+    fi
 }
 
 # =============================================================================
-# 🎯 메인 범용 처리 시스템
+# Main Universal Processing System
 # =============================================================================
 
-# 범용 Gradle 설정 (스마트 분기)
 configure_gradle_universal() {
-    log_step "🌟 범용 Gradle 설정 시스템 시작"
-    
-    # 1단계: 프로젝트 타입 감지
+    log_step "Starting universal Gradle configuration system"
     local gradle_type=$(detect_gradle_type)
     
     if [ "$gradle_type" = "unknown" ]; then
-        log_error "지원하지 않는 프로젝트 구조입니다"
-        log_info "💡 해결 방법:"
-        echo "   1. Flutter 프로젝트 루트에서 실행하세요"
-        echo "   2. android 폴더가 존재하는지 확인하세요"
-        echo "   3. flutter create로 새 프로젝트를 만들어보세요"
+        log_error "Unsupported project structure"
+        log_info "Solution: Run from Flutter project root and ensure android folder exists"
         return 1
     fi
     
-    # 2단계: 프로젝트 구조 분석
     analyze_project_structure "$gradle_type"
     
-    # 3단계: 타입별 분기 처리
     case "$gradle_type" in
         "kotlin_dsl")
-            log_info "🚀 Kotlin DSL 최적화 경로로 진행합니다"
+            log_info "Processing with Kotlin DSL optimization path"
             configure_kotlin_dsl_gradle
             ;;
         "groovy_dsl")
-            log_info "🚀 Groovy DSL 최적화 경로로 진행합니다"
+            log_info "Processing with Groovy DSL optimization path"
             configure_groovy_dsl_gradle
             ;;
     esac
     
-    log_success "🌟 범용 Gradle 설정 완료!"
+    log_success "Universal Gradle configuration completed!"
 }
 
 # =============================================================================
-# 🧪 범용 빌드 테스트 시스템
+# Build Testing System
 # =============================================================================
 
-# 범용 Gradle 검증 (DSL 타입 무관)
-validate_gradle_universal() {
-    log_step "🧪 범용 Gradle 환경 검증"
-    
-    if [ ! -f "android/gradlew" ]; then
-        log_error "gradlew 파일을 찾을 수 없습니다"
-        return 1
-    fi
-    
-    cd android
-    
-    # 1단계: 기본 Gradle 작동 확인
-    if ./gradlew projects --quiet > /dev/null 2>&1; then
-        log_success "Gradle 기본 설정 정상"
-        cd ..
-        return 0
-    else
-        log_info "Gradle 기본 설정 확인 중..."
-        cd ..
-        return 1
-    fi
-}
-
-# 범용 빌드 테스트
 test_gradle_build_universal() {
-    # 1단계: 안전 검증
-    if ! validate_gradle_universal; then
-        log_warning "Gradle 기본 설정에 문제가 있습니다"
-        return 1
+    log_step "Starting Android build compatibility test"
+    
+    if [[ "$DRY_RUN_MODE" == "true" ]]; then
+        log_dry_run "Would test: flutter build apk --debug --quiet"
+        return 0
     fi
     
-    # 2단계: 실제 빌드 테스트
-    log_step "🏗️ Android 빌드 호환성 테스트 시작"
-    
-    if show_progress_with_fun "flutter build apk --debug --quiet" "Android 빌드 테스트"; then
-        log_success "빌드 테스트 성공! 모든 설정이 정상입니다 🎉"
+    if show_progress_with_fun "flutter build apk --debug --quiet" "Android build test"; then
+        log_success "Build test successful! All configurations are working properly"
         return 0
     else
-        log_warning "빌드 테스트 실패 - 추가 설정이 필요할 수 있습니다"
-        log_info "💡 수동 확인 방법:"
-        echo "   1. cd android && ./gradlew --version"
-        echo "   2. flutter doctor -v"
-        echo "   3. flutter build apk --debug"
+        log_warning "Build test failed - additional configuration may be needed"
+        if confirm_action "Retry build test?" "false"; then
+            if show_progress_with_fun "flutter build apk --debug --quiet" "Android build test retry"; then
+                log_success "Retry build successful!"
+                return 0
+            else
+                log_error "Build test retry failed. Manual verification needed."
+                log_info "Manual verification steps:"
+                echo "   1. cd android && ./gradlew --version"
+                echo "   2. flutter doctor -v"
+                echo "   3. flutter build apk --debug"
+                return 1
+            fi
+        fi
         return 1
     fi
 }
 
 # =============================================================================
-# 📊 기존 함수들 (유지 + 개선)
+# Existing Functions (Maintained + Improved)
 # =============================================================================
 
-# 안전한 삭제 함수 (기존 유지)
 safe_remove() {
     local path="$1"
     local description="$2"
     
+    if [[ "$DRY_RUN_MODE" == "true" ]]; then
+        log_dry_run "Would remove: $path ($description)"
+        return 0
+    fi
+    
     if [ -d "$path" ] || [ -f "$path" ]; then
         if rm -rf "$path" 2>/dev/null; then
-            log_success "$description 삭제됨"
+            log_success "Removed: $description"
             return 0
         else
-            log_warning "$description 삭제 실패 (사용 중이거나 권한 부족)"
-            log_info "💡 수동 삭제 방법: sudo rm -rf $path"
+            log_warning "Failed to remove: $description (in use or permission denied)"
+            log_info "Manual removal: sudo rm -rf $path"
             return 1
         fi
     else
-        log_info "$description 경로가 존재하지 않음 (정상)"
+        log_info "$description path does not exist (normal)"
         return 0
     fi
 }
 
-# macOS 체크 (기존 유지)
 check_macos() {
     if [[ "$OSTYPE" != "darwin"* ]]; then
-        log_error "이 스크립트는 macOS 전용입니다"
-        log_info "현재 OS: $OSTYPE"
+        log_error "This script is macOS only"
+        log_info "Current OS: $OSTYPE"
         exit 1
     fi
 }
 
-# Flutter 프로젝트 체크 (기존 유지)
 check_flutter_project() {
     if [ ! -f "pubspec.yaml" ]; then
-        log_error "Flutter 프로젝트 루트에서 실행해주세요"
-        log_info "pubspec.yaml 파일을 찾을 수 없습니다"
+        log_error "Please run from Flutter project root"
+        log_info "pubspec.yaml file not found"
         exit 1
     fi
-    
     local project_name
     project_name=$(grep "^name:" pubspec.yaml | cut -d' ' -f2 | tr -d '"' | head -1)
-    log_info "Flutter 프로젝트: $project_name"
+    log_info "Flutter project: $project_name"
 }
 
-# Java 17 설정 (기존 유지)
 setup_java17() {
-    log_step "Java 17 환경 설정"
-    
-    # /usr/libexec/java_home 우선 사용
+    log_step "Setting up Java 17 environment"
     local java_home_path
     java_home_path=$(/usr/libexec/java_home -v17 2>/dev/null || true)
     
     if [ -n "$java_home_path" ]; then
         export JAVA_HOME="$java_home_path"
-        log_info "✅ /usr/libexec/java_home으로 Java 17 발견: $JAVA_HOME"
+        log_info "Java 17 found via /usr/libexec/java_home: $JAVA_HOME"
     else
-        # Homebrew 경로들을 체크
         local java_paths=(
             "/opt/homebrew/Cellar/openjdk@17/*/libexec/openjdk.jdk/Contents/Home"
             "/usr/local/Cellar/openjdk@17/*/libexec/openjdk.jdk/Contents/Home"
@@ -519,7 +685,6 @@ setup_java17() {
         )
         
         local java_home=""
-        
         for path in "${java_paths[@]}"; do
             local expanded_paths=($path)
             for expanded_path in "${expanded_paths[@]}"; do
@@ -532,90 +697,71 @@ setup_java17() {
         
         if [ -n "$java_home" ]; then
             export JAVA_HOME="$java_home"
-            log_info "✅ Homebrew에서 Java 17 발견: $JAVA_HOME"
+            log_info "Java 17 found via Homebrew: $JAVA_HOME"
         else
-            log_error "Java 17을 찾을 수 없습니다!"
-            log_info "💡 해결 방법:"
-            echo "   1. brew install openjdk@17"
-            echo "   2. brew link openjdk@17"
+            log_error "Java 17 not found!"
+            log_info "Solution: 1. brew install openjdk@17  2. brew link openjdk@17"
             exit 1
         fi
     fi
     
     export PATH="$JAVA_HOME/bin:$PATH"
     
-    # local.properties에 java.home 명시적 설정
-    if [ -f "android/local.properties" ]; then
+    if [ -f "android/local.properties" ] && [[ "$DRY_RUN_MODE" != "true" ]]; then
         sed -i.bak '/^java\.home=/d' android/local.properties
         echo "java.home=$JAVA_HOME" >> android/local.properties
-        log_success "local.properties에 java.home 설정 완료"
+        log_success "java.home configured in local.properties"
     fi
     
-    # Flutter config에도 Java path 설정
-    flutter config --jdk-dir "$JAVA_HOME" > /dev/null 2>&1 || true
+    if [[ "$DRY_RUN_MODE" != "true" ]]; then
+        flutter config --jdk-dir "$JAVA_HOME" > /dev/null 2>&1 || true
+    fi
     
-    # 설정 확인
-    echo "📋 현재 Java 설정:"
+    echo "Current Java configuration:"
     echo "   JAVA_HOME: $JAVA_HOME"
     java -version 2>&1 | head -1
     
-    log_success "Java 17 설정 완료"
+    log_success "Java 17 setup completed"
 }
 
-# Groovy DSL 전용 Gradle 설정
-configure_groovy_dsl_gradle() {
-    log_step "🟢 Groovy DSL 프로젝트 설정 시작"
-    
-    # 1. settings.gradle 업데이트 (있는 경우)
-    if [ -f "android/settings.gradle" ]; then
-        update_groovy_settings_gradle
-    fi
-    
-    # 2. app/build.gradle 업데이트  
-    update_groovy_app_build
-    
-    # 3. gradle.properties 설정 (공통)
-    configure_gradle_properties_universal
-    
-    # 4. Gradle Wrapper 업데이트 (공통)
-    update_gradle_wrapper_universal
-    
-    log_success "🟢 Groovy DSL 설정 완료"
-}
-
-# Flutter 정리 (기존 유지)
 clean_flutter() {
-    log_step "Flutter 캐시 정리"
+    log_step "Cleaning Flutter cache"
     
-    safe_remove "build" "build 폴더"
+    safe_remove "build" "build folder"
     
-    flutter clean > /dev/null 2>&1
-    log_success "flutter clean 완료"
-    
-    flutter pub get > /dev/null 2>&1
-    log_success "flutter pub get 완료"
-    
-    if command -v flutter >/dev/null 2>&1; then
-        flutter analyze --suggestions > /dev/null 2>&1 || true
-        log_success "Flutter 호환성 검사 완료"
+    if [[ "$DRY_RUN_MODE" != "true" ]]; then
+        flutter clean > /dev/null 2>&1
+        log_success "flutter clean completed"
+        
+        flutter pub get > /dev/null 2>&1
+        log_success "flutter pub get completed"
+        
+        if command -v flutter >/dev/null 2>&1; then
+            flutter analyze --suggestions > /dev/null 2>&1 || true
+            log_success "Flutter compatibility check completed"
+        fi
+    else
+        log_dry_run "Would run: flutter clean && flutter pub get"
     fi
 }
 
-# 재미있는 메시지 배열 (기존 유지)
-declare -a MESSAGES_15S=("⏱️  빌드 준비 중... 잠시만요!" "📄 의존성 확인 중..." "📦 패키지 정리 중...")
-declare -a MESSAGES_30S=("☕ 조금만 기다려주세요... 커피 한 모금 어때요?" "🎵 거의 다 끝났어요... 좋아하는 노래 한 소절!" "📱 Flutter가 열심히 일하고 있어요...")
-declare -a MESSAGES_1M=("🍕 아직도 빌드 중... 오늘 점심 뭐 드실래요?" "📚 책 한 페이지라도 읽어볼까요?" "🚀 복잡한 의존성을 정리하는 중... 거의 끝!")
-declare -a MESSAGES_2M=("😅 참아주세요... 이것도 개발의 일부예요!" "🏃‍♂️ 스트레칭이라도 한번 해볼까요?" "🧘‍♀️ 심호흡... 곧 끝날 거예요!" "🎯 마지막 단계예요... 조금만 더 인내!")
+# Progress messages
+declare -a MESSAGES_15S=("Build preparation in progress..." "Checking dependencies..." "Organizing packages...")
+declare -a MESSAGES_30S=("Please wait a moment... How about a coffee?" "Almost done... Play your favorite song!" "Flutter is working hard...")
+declare -a MESSAGES_1M=("Still building... What's for lunch today?" "How about reading a page from a book?" "Organizing complex dependencies... Almost there!")
+declare -a MESSAGES_2M=("Please be patient... This is part of development!" "How about some stretching?" "Deep breath... It'll be done soon!" "Final stage... Just a little more patience!")
 
-# 개선된 진행 표시기 (범용 지원)
 show_progress_with_fun() {
     local command="$1"
     local description="$2"
     
-    # 백그라운드에서 명령어 실행
+    if [[ "$DRY_RUN_MODE" == "true" ]]; then
+        log_dry_run "Would execute: $command"
+        return 0
+    fi
+    
     $command > /tmp/flutter_build_output.log 2>&1 &
     local cmd_pid=$!
-    
     local start_time=$(date +%s)
     local last_message_time=$start_time
     
@@ -625,7 +771,6 @@ show_progress_with_fun() {
         local current_time=$(date +%s)
         local elapsed=$((current_time - start_time))
         
-        # 15초마다 메시지 업데이트
         if [ $((current_time - last_message_time)) -ge 15 ]; then
             if [ $elapsed -ge 120 ]; then
                 local msg=${MESSAGES_2M[$((RANDOM % ${#MESSAGES_2M[@]}))]}
@@ -646,231 +791,248 @@ show_progress_with_fun() {
         sleep 3
     done
     
-    # 프로세스 종료 대기
     wait $cmd_pid
     local exit_code=$?
-    
     local total_time=$(($(date +%s) - start_time))
     
     if [ $exit_code -eq 0 ]; then
-        log_success "$description 완료! (${total_time}초)"
+        log_success "$description completed! (${total_time}s)"
         if [ $total_time -ge 15 ]; then
-            log_fun "🎉 기다려주셔서 감사해요!"
+            log_fun "Thank you for your patience!"
         fi
     else
-        log_warning "$description 실패 (${total_time}초)"
-        log_info "자세한 로그: /tmp/flutter_build_output.log"
+        log_warning "$description failed (${total_time}s)"
+        log_info "Detailed log: /tmp/flutter_build_output.log"
     fi
     
     return $exit_code
 }
 
-# =============================================================================
-# 🚀 범용 보수적 Gradle 관리 시스템
-# =============================================================================
-
-# 범용 보수적 Gradle 정리 및 관리
 clean_gradle_universal() {
-    log_step "🌟 범용 보수적 Gradle 정리 및 관리"
+    log_step "Universal conservative Gradle cleanup and management"
     
-    # 모든 Gradle Daemon 종료
-    if command -v gradle >/dev/null 2>&1; then
+    # Stop all Gradle daemons
+    if command -v gradle >/dev/null 2>&1 && [[ "$DRY_RUN_MODE" != "true" ]]; then
         gradle --stop 2>/dev/null || true
-        log_success "Gradle Daemon 종료됨"
+        log_success "Gradle daemon terminated"
     fi
     
-    # Android 프로젝트용 gradlew 종료
-    if [ -f "android/gradlew" ]; then
+    if [ -f "android/gradlew" ] && [[ "$DRY_RUN_MODE" != "true" ]]; then
         cd android
         ./gradlew --stop 2>/dev/null || true
         cd ..
-        log_success "Android Gradle Daemon 종료됨"
+        log_success "Android Gradle daemon terminated"
     fi
     
-    # 안전한 캐시 삭제
-    safe_remove "$HOME/.gradle/caches/modules-2" "Gradle 모듈 캐시"
-    safe_remove "android/.gradle" "로컬 Gradle 캐시"
+    # Safe cache cleanup
+    safe_remove "$HOME/.gradle/caches/modules-2" "Gradle module cache"
+    safe_remove "android/.gradle" "Local Gradle cache"
     
-    # 범용 Gradle 설정 적용
+    # Universal Gradle configuration
     configure_gradle_universal
     
-    # 단계별 검증 및 빌드 테스트
+    # NDK version check
+    check_ndk_version
+    
+    # Build test
     if ! test_gradle_build_universal; then
-        log_warning "첫 번째 빌드 테스트 실패, 재시도 중..."
-        
-        if test_gradle_build_universal; then
-            log_success "재시도 빌드 성공!"
-        else
-            log_warning "Gradle 설정을 완전히 해결하지 못했습니다"
-            log_info "다음 명령어로 수동 확인을 권장합니다:"
-            log_info "cd android && ./gradlew --version"
-            log_info "flutter build apk --debug"
-        fi
+        log_warning "Gradle configuration not fully resolved. Manual verification recommended."
     else
-        log_success "범용 Gradle 환경 검증 및 빌드 테스트 완료"
+        log_success "Universal Gradle environment verification and build test completed"
     fi
 }
 
-# iOS 정리 (기존 유지)
+check_ndk_version() {
+    log_step "Checking NDK version (Google Play 16KB page size support required)"
+    local ndk_version=""
+
+    # 1. Check NDK version in local.properties
+    if [ -f "android/local.properties" ]; then
+        ndk_version=$(grep "ndk.version" android/local.properties | cut -d'=' -f2)
+    fi
+
+    # 2. Check NDK version in flutter doctor -v
+    if [ -z "$ndk_version" ] && command -v flutter >/dev/null 2>&1; then
+        ndk_version=$(flutter doctor -v | grep "NDK" | grep -o '[0-9.]*' | cut -d' ' -f2)
+    fi
+
+    if [ -n "$ndk_version" ]; then
+        local ndk_code=$(echo "$ndk_version" | tr -d '.' | cut -c 1-8)
+        log_info "Current NDK version: $ndk_version"
+        if [ "$ndk_code" -ge "$REQUIRED_NDK_VERSION_CODE" ]; then
+            log_success "NDK version $REQUIRED_NDK_VERSION or higher meets 16KB page size requirements"
+        else
+            log_warning "Current NDK version ($ndk_version) does not meet Google Play 16KB page size requirements ($REQUIRED_NDK_VERSION)"
+            log_info "Solution: Open Android Studio and install latest NDK (Side-by-side) in SDK Manager"
+            log_info "   (Tools -> SDK Manager -> SDK Tools tab -> NDK (Side-by-side))"
+        fi
+    else
+        log_warning "NDK version not found. Please check installation in Android Studio"
+    fi
+}
+
 clean_ios() {
-    log_step "iOS 환경 정리"
+    log_step "Cleaning iOS environment"
     
     if [ ! -d "ios" ]; then
-        log_warning "iOS 폴더가 없습니다. iOS 지원이 없는 프로젝트인 것 같습니다"
+        log_warning "iOS folder not found. This project may not support iOS"
         return
     fi
     
     cd ios
     
-    # 안전한 Pods 정리
-    safe_remove "Pods" "Pods 폴더"
+    # Safe Pods cleanup
+    safe_remove "Pods" "Pods folder"
     safe_remove "Podfile.lock" "Podfile.lock"
     
-    # CocoaPods 캐시 정리
-    if command -v pod >/dev/null 2>&1; then
+    # CocoaPods cache cleanup
+    if command -v pod >/dev/null 2>&1 && [[ "$DRY_RUN_MODE" != "true" ]]; then
         pod cache clean --all 2>/dev/null || true
-        log_success "CocoaPods 캐시 정리됨"
+        log_success "CocoaPods cache cleaned"
         
-        log_step "CocoaPods 재설치 시작"
+        log_step "Reinstalling CocoaPods"
         
-        if show_progress_with_fun "pod install" "CocoaPods 설치"; then
-            log_success "Pod 설치 완료 (빠른 방법)"
+        if show_progress_with_fun "pod install" "CocoaPods installation"; then
+            log_success "Pod installation completed (fast method)"
         else
-            log_info "빠른 설치 실패, repo 업데이트 후 재시도"
-            if show_progress_with_fun "pod install --repo-update" "CocoaPods 설치 (repo 업데이트)"; then
-                log_success "Pod 설치 완료 (repo 업데이트)"
+            log_info "Fast installation failed, retrying with repo update"
+            if show_progress_with_fun "pod install --repo-update" "CocoaPods installation (repo update)"; then
+                log_success "Pod installation completed (repo update)"
             else
-                log_warning "Pod 설치에 문제가 있습니다"
+                log_warning "Pod installation has issues"
             fi
         fi
+    elif [[ "$DRY_RUN_MODE" == "true" ]]; then
+        log_dry_run "Would run: pod install"
     else
-        log_warning "CocoaPods가 설치되지 않았습니다"
-        log_info "설치 방법: brew install cocoapods"
+        log_warning "CocoaPods not installed"
+        log_info "Installation method: brew install cocoapods"
     fi
     
     cd ..
     
-    # 안전한 Xcode 캐시 정리
-    log_step "Xcode 캐시 정리"
+    # Safe Xcode cache cleanup
+    log_step "Cleaning Xcode cache"
     safe_remove "$HOME/Library/Developer/Xcode/DerivedData" "Xcode DerivedData"
     
-    # 30일 이상된 Archives 정리
+    # Clean Archives older than 30 days
     local archives="$HOME/Library/Developer/Xcode/Archives"
-    if [ -d "$archives" ]; then
+    if [ -d "$archives" ] && [[ "$DRY_RUN_MODE" != "true" ]]; then
         if find "$archives" -name "*.xcarchive" -mtime +30 -delete 2>/dev/null; then
-            log_success "30일 이상된 Xcode Archives 정리됨"
+            log_success "Cleaned Xcode Archives older than 30 days"
         else
-            log_info "Xcode Archives 정리 건너뜀 (권한 또는 파일 없음)"
+            log_info "Skipped Xcode Archives cleanup (permissions or no files)"
         fi
+    elif [[ "$DRY_RUN_MODE" == "true" ]]; then
+        log_dry_run "Would clean Archives older than 30 days"
     fi
 }
 
-# iOS 빌드 테스트
 test_ios_build() {
     if [ ! -d "ios" ]; then
-        log_info "iOS 폴더가 없어 빌드 테스트를 건너뜁니다"
+        log_info "iOS folder not found, skipping build test"
         return 0
     fi
     
-    log_step "iOS 빌드 테스트 시작"
+    log_step "Starting iOS build test"
     
-    if show_progress_with_fun "flutter build ios --debug --no-codesign --quiet" "iOS 빌드 테스트"; then
-        log_success "iOS 빌드 테스트 성공!"
+    if show_progress_with_fun "flutter build ios --debug --no-codesign --quiet" "iOS build test"; then
+        log_success "iOS build test successful!"
         return 0
     else
-        log_warning "iOS 빌드 테스트 실패 (정상적인 경우도 있음)"
+        log_warning "iOS build test failed (this can be normal in some cases)"
         return 1
     fi
 }
 
 # =============================================================================
-# 🎯 실행 모드들
+# Execution Modes
 # =============================================================================
 
-# Android 모드 (범용 지원)
 android_mode() {
-    echo -e "${GREEN}🤖 Android 범용 모드 시작${NC}"
+    echo -e "${GREEN}[MODE] Android universal mode started${NC}"
     echo ""
-    
     setup_java17
     clean_flutter
     clean_gradle_universal
-    
     echo ""
-    log_success "🎉 Android 정리 완료!"
-    log_info "🌟 Groovy DSL과 Kotlin DSL 모두 지원됨"
+    log_success "Android cleanup completed!"
+    log_info "Both Groovy DSL and Kotlin DSL supported"
+    log_info "16KB page size support (Google Play mandatory Nov 2025)"
 }
 
-# iOS 모드
 ios_mode() {
-    echo -e "${GREEN}🍎 iOS 모드 시작${NC}"
+    echo -e "${GREEN}[MODE] iOS mode started${NC}"
     echo ""
-    
     clean_flutter
     clean_ios
     test_ios_build
-    
     echo ""
-    log_success "🎉 iOS 정리 완료!"
+    log_success "iOS cleanup completed!"
 }
 
-# 전체 모드 (범용 지원)
 full_mode() {
-    echo -e "${GREEN}🌟 전체 범용 정리 모드 시작${NC}"
+    echo -e "${GREEN}[MODE] Full universal cleanup mode started${NC}"
     echo ""
-    
     setup_java17
     clean_flutter
     clean_gradle_universal
     clean_ios
     test_ios_build
-    
     echo ""
-    log_success "🎉 전체 정리 완료!"
-    log_info "🌟 Kotlin DSL과 Groovy DSL 완벽 지원"
+    log_success "Full cleanup completed!"
+    log_info "Kotlin DSL and Groovy DSL perfect support"
+    log_info "16KB page size support (Google Play mandatory Nov 2025)"
 }
 
 # =============================================================================
-# 🆘 도움말 및 버전 정보
+# Help and Version Information
 # =============================================================================
 
-# 도움말 표시
 show_help() {
-    echo -e "${BLUE}Flutter Build Fix v$SCRIPT_VERSION - 범용 DSL 지원${NC}"
+    echo -e "${BLUE}Flutter Build Fix v$SCRIPT_VERSION - Universal DSL Support${NC}"
     echo ""
-    echo "✨ 새로운 기능: Kotlin DSL (.kts)과 Groovy DSL (.gradle) 완벽 지원!"
+    echo "New features: Flutter 3.35.3 optimization + perfect Kotlin DSL (.kts) and Groovy DSL (.gradle) support!"
     echo ""
-    echo "사용법:"
-    echo "  $0 [옵션]"
+    echo "Usage:"
+    echo "  $0 [options] [mode]"
     echo ""
-    echo "옵션:"
-    echo "  --full      전체 정리 (Android + iOS, 기본값)"
-    echo "  --android   Android 문제만 해결"  
-    echo "  --ios       iOS 문제만 해결"
-    echo "  --version   버전 정보 표시"
-    echo "  --help      이 도움말 표시"
+    echo "Modes:"
+    echo "  --full      Full cleanup (Android + iOS, default)"
+    echo "  --android   Android issues only"  
+    echo "  --ios       iOS issues only"
     echo ""
-    echo "예제:"
-    echo "  $0                # 전체 정리"
-    echo "  $0 --android     # Android만"
-    echo "  $0 --ios         # iOS만"
+    echo "Options:"
+    echo "  --interactive   Interactive mode with confirmations (default)"
+    echo "  --auto          Automatic mode with smart defaults"
+    echo "  --dry-run       Show what would be changed without making changes"
+    echo "  --force         Skip all confirmations and apply all changes"
+    echo "  --version       Show version information"
+    echo "  --help          Show this help message"
     echo ""
-    echo "🌟 특징: Flutter 3.29+ Kotlin DSL과 기존 Groovy DSL 자동 감지 지원"
-    echo "🛡️  안정성: 보수적 Gradle 버전 관리로 최고 안정성 보장"
+    echo "Examples:"
+    echo "  $0                          # Full cleanup (interactive)"
+    echo "  $0 --android --auto         # Android only (automatic)"
+    echo "  $0 --ios --dry-run          # iOS preview changes"
+    echo "  $0 --full --force           # Full cleanup (no confirmations)"
+    echo ""
+    echo "Features: Flutter 3.35.3 optimization + automatic Kotlin DSL and Groovy DSL detection"
+    echo "Performance: AGP $RECOMMENDED_AGP_VERSION + Gradle $RECOMMENDED_GRADLE_VERSION + 6GB memory optimization"
+    echo "Safety: Verified version combinations for maximum stability"
     echo "Repository: https://github.com/$REPO"
 }
 
-# 버전 정보 표시
 show_version() {
     echo "Flutter Build Fix v$SCRIPT_VERSION"
-    echo "🌟 범용 DSL 지원 | Kotlin DSL + Groovy DSL | macOS 전용"
-    echo "🛡️  안정성: 보수적 Gradle 관리 | 안전한 오류 처리"
-    echo "📊 지원 Gradle 버전: ${STABLE_GRADLE_VERSIONS[*]}"
-    echo "🔷 Kotlin DSL: Flutter 3.29+ 신규 프로젝트 완벽 지원"
-    echo "🟢 Groovy DSL: Flutter 3.28 이하 기존 프로젝트 완벽 지원"
+    echo "Universal DSL support | Kotlin DSL + Groovy DSL | macOS only"
+    echo "Performance: AGP $RECOMMENDED_AGP_VERSION | Gradle $RECOMMENDED_GRADLE_VERSION | Kotlin $RECOMMENDED_KOTLIN_VERSION"
+    echo "Safety: Conservative Gradle management | Safe error handling"
+    echo "Supported Gradle versions: ${STABLE_GRADLE_VERSIONS[*]}"
+    echo "Kotlin DSL: Perfect support for Flutter 3.29+ new projects"
+    echo "Groovy DSL: Perfect support for Flutter 3.28 and earlier existing projects"
+    echo "16KB Support: Google Play mandatory compliance (Nov 1, 2025)"
 }
 
-# GitHub 업데이트 확인
 check_for_updates() {
     if command -v curl >/dev/null 2>&1; then
         local latest_version
@@ -878,71 +1040,73 @@ check_for_updates() {
         
         if [ -n "$latest_version" ] && [ "$latest_version" != "v$SCRIPT_VERSION" ]; then
             echo ""
-            log_warning "📢 새 버전이 있습니다: $latest_version (현재: v$SCRIPT_VERSION)"
-            echo -e "${CYAN}📄 업데이트: curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh -o install.sh && zsh install.sh${NC}"
+            log_warning "New version available: $latest_version (current: v$SCRIPT_VERSION)"
+            echo -e "${CYAN}Update: curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh -o install.sh && zsh install.sh${NC}"
             echo ""
         fi
     fi
 }
 
 # =============================================================================
-# 🎯 메인 함수
+# Main Function
 # =============================================================================
 
 main() {
-    # macOS 체크
+    # Parse arguments first
+    parse_arguments "$@"
+    
+    # System checks
     check_macos
     
-    # 헤더 출력
+    # Header output
     echo -e "${BLUE}"
     echo "=================================================================="
-    echo "    🚀 Flutter 3.35+ 범용 빌드 수정 스크립트"
-    echo "    🌟 Kotlin DSL + Groovy DSL 완벽 지원 | v$SCRIPT_VERSION"
-    echo "    🔷 Flutter 3.29+ (.kts) | 🟢 Flutter 3.28- (.gradle)"
-    echo "    💻 macOS 전용 | 🛡️ 보수적 Gradle 관리"
-    echo "    👨‍💻 Author: Heesung Jin (kage2k)"
+    echo "    Flutter 3.35.3 Universal Build Fix Script"
+    echo "    Kotlin DSL + Groovy DSL Perfect Support | v$SCRIPT_VERSION"
+    echo "    Kotlin DSL: Flutter 3.35.3+ (.kts) | Groovy DSL: Flutter 3.28- (.gradle)"
+    echo "    Performance: AGP $RECOMMENDED_AGP_VERSION | Gradle $RECOMMENDED_GRADLE_VERSION | Kotlin $RECOMMENDED_KOTLIN_VERSION"
+    echo "    macOS only | Safe version management | 16KB Support"
+    echo "    Author: Heesung Jin (kage2k)"
     echo "=================================================================="
     echo -e "${NC}"
     
-    # 업데이트 확인
+    # Show execution mode
+    if [[ "$DRY_RUN_MODE" == "true" ]]; then
+        log_info "DRY-RUN MODE: No changes will be made"
+    elif [[ "$FORCE_MODE" == "true" ]]; then
+        log_info "FORCE MODE: All changes will be applied automatically"
+    elif [[ "$AUTO_MODE" == "true" ]]; then
+        log_info "AUTO MODE: Smart defaults will be used"
+    else
+        log_info "INTERACTIVE MODE: Confirmations will be requested"
+    fi
+    
+    # Update check
     check_for_updates
     
-    # Flutter 프로젝트 체크
+    # Project check
     check_flutter_project
     
-    # 인자 처리
-    case "${1:-}" in
-        --help|-h)
-            show_help
-            exit 0
-            ;;
-        --version|-v)
-            show_version
-            exit 0
-            ;;
+    # Execute based on mode
+    case "${EXECUTION_MODE:---full}" in
         --android)
             android_mode
             ;;
         --ios)
             ios_mode
             ;;
-        --full|"")
+        --full)
             full_mode
-            ;;
-        *)
-            log_error "알 수 없는 옵션: $1"
-            echo ""
-            show_help
-            exit 1
             ;;
     esac
     
     echo ""
-    log_info "💡 팁: 정기적으로 실행하면 Flutter 개발 환경을 최적 상태로 유지할 수 있어요!"
-    log_info "🌟 범용성: Kotlin DSL과 Groovy DSL 프로젝트 모두 자동 지원"
-    log_info "🛡️  안정성: 검증된 Gradle 버전 (${STABLE_GRADLE_VERSIONS[*]}) 우선 사용"
-    log_info "🔗 Repository: https://github.com/$REPO"
+    log_info "Tip: Run regularly to keep your Flutter development environment in optimal condition!"
+    log_info "Flutter 3.35.3 optimization: Automatic support for both Kotlin DSL and Groovy DSL projects"
+    log_info "Performance improvements: AGP $RECOMMENDED_AGP_VERSION + Gradle $RECOMMENDED_GRADLE_VERSION + memory optimization"
+    log_info "Stability: Verified versions (${STABLE_GRADLE_VERSIONS[*]}) prioritized"
+    log_info "Repository: https://github.com/$REPO"
 }
 
-# 스크립트 실행
+# Execute script
 main "$@"
