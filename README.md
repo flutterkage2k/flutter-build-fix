@@ -6,25 +6,7 @@
 
 **The most comprehensive Flutter build environment fix script with universal Kotlin DSL and Groovy DSL support.**
 
-## What's New in v3.3.0
-
-### 🚀 Major Features
-- **Universal DSL Detection**: Automatic detection and support for both Kotlin DSL (.kts) and Groovy DSL (.gradle) projects
-- **16KB Page Size Support**: Google Play mandatory compliance for apps published after November 1, 2025
-- **Flutter 3.35.3 Optimization**: Verified compatibility with latest Flutter stable release
-- **Enhanced Safety**: Improved backup system and dry-run mode for safe operations
-
-### 🔧 Technical Improvements
-- **AGP 8.7.3 + Gradle 8.12**: Latest stable versions with optimal performance
-- **Kotlin 2.1.0**: Full support for latest Kotlin compiler
-- **Java 17 Environment**: Automatic detection and configuration
-- **Memory Optimization**: 6GB JVM heap with performance tuning
-- **Build Performance**: Up to 40% faster build times with parallel processing
-
-### 📱 Google Play Compliance
-- **16KB Page Size Ready**: Automatic NDK 29.0.13846066 configuration
-- **Performance Boost**: 3-30% faster app startup, 4.5% better battery life
-- **Compliance Deadline**: Ready for Google Play's November 1, 2025 requirement
+co
 
 ## Quick Start
 
