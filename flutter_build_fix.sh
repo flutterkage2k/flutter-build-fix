@@ -2,10 +2,10 @@
 
 # =============================================================================
 # Flutter Build Fix - Universal (Groovy + Kotlin DSL) Support
-# 
+#
 # Repository: https://github.com/flutterkage2k/flutter-build-fix
 # Author: Heesung Jin (kage2k)
-# Version: 3.3.0 - Improved Automation & 16KB Support
+# Version: 4.0.0 - Flutter 3.44.6 Support (flutter delegation, AGP 9 safe)
 # =============================================================================
 
 set -e
@@ -20,19 +20,22 @@ PURPLE='\033[0;35m'
 NC='\033[0m'
 
 # Version information
-SCRIPT_VERSION="3.3.0"
+SCRIPT_VERSION="4.0.0"
 REPO="flutterkage2k/flutter-build-fix"
 
-# Flutter 3.35.3 optimized version list (September 2025 update)
-STABLE_GRADLE_VERSIONS=("8.12" "8.11.1" "8.10" "8.9")
-RECOMMENDED_AGP_VERSION="8.7.3"
-RECOMMENDED_KOTLIN_VERSION="2.1.0"
-RECOMMENDED_GRADLE_VERSION="8.12"
+# Flutter 3.44.6 optimized version list (July 2026 update)
+# Values chosen to clear Flutter's own DependencyVersionChecker warn thresholds
+# (Gradle >= 8.14, AGP >= 8.11.1, Kotlin >= 2.2.20, Java >= 17) while staying on
+# AGP 8.x to avoid the AGP 9 built-in-Kotlin breakage in existing projects.
+STABLE_GRADLE_VERSIONS=("8.14" "8.13" "8.12" "8.11.1")
+RECOMMENDED_AGP_VERSION="8.11.1"
+RECOMMENDED_KOTLIN_VERSION="2.2.20"
+RECOMMENDED_GRADLE_VERSION="8.14"
 
-# 16KB page size support minimum requirements (Google Play mandatory Nov 1, 2025)
-REQUIRED_NDK_VERSION_CODE="13846066"
-REQUIRED_NDK_VERSION="29.0.13846066"
-MINIMUM_AGP_FOR_16KB="8.5.1"
+# NDK/SDK are delegated to Flutter (flutter.ndkVersion / flutter.compileSdkVersion).
+# 16KB page size support is handled automatically by Flutter's default NDK
+# (28.2.13676358+) as of Flutter 3.44.6 - no forced NDK version needed.
+FLUTTER_DEFAULT_NDK_VERSION="28.2.13676358"
 
 # Execution mode flags
 INTERACTIVE_MODE=true
@@ -121,6 +124,31 @@ confirm_action() {
     fi
 }
 
+# Interactive minSdk choice: delegate to flutter.minSdkVersion (recommended) or pin to 26.
+# Echoes "delegate" or "26". Non-interactive modes default to "delegate".
+choose_minsdk_strategy() {
+    if [[ "$FORCE_MODE" == "true" ]] || [[ "$AUTO_MODE" == "true" ]]; then
+        echo "delegate"
+        return 0
+    fi
+
+    if [[ "$INTERACTIVE_MODE" != "true" ]]; then
+        echo "delegate"
+        return 0
+    fi
+
+    # Prompt on stderr so stdout stays clean for the returned value
+    echo -e "${CYAN}[STEP] Choose minSdk configuration:${NC}" >&2
+    echo "  1) Delegate to flutter.minSdkVersion (recommended, currently 24)" >&2
+    echo "  2) Pin minSdk = 26" >&2
+    read -p "Select [1/2] (default 1): " -r minsdk_reply >&2
+    if [[ "$minsdk_reply" == "2" ]]; then
+        echo "26"
+    else
+        echo "delegate"
+    fi
+}
+
 # Safe file modification with dry-run support
 safe_modify_file() {
     local file="$1"
@@ -147,8 +175,11 @@ safe_modify_file() {
 # =============================================================================
 
 detect_gradle_type() {
-    log_step "Detecting Gradle project type..."
-    
+    # NOTE: This function's stdout is captured via $(detect_gradle_type), so it
+    # must ONLY echo the type. Send the human-facing log to stderr, otherwise the
+    # log line gets captured into the type string and every case match fails.
+    log_step "Detecting Gradle project type..." >&2
+
     # Priority 1: settings file
     if [ -f "android/settings.gradle.kts" ]; then
         echo "kotlin_dsl"
@@ -232,82 +263,77 @@ check_16kb_support_status() {
     esac
     
     if [ -f "$build_file" ]; then
-        local ndk_check=$(grep -o 'ndkVersion.*[0-9.]*' "$build_file" | head -1)
+        local ndk_check=$(grep -o 'ndkVersion.*' "$build_file" | head -1)
         if [ -n "$ndk_check" ]; then
             log_info "   - NDK setting: $ndk_check"
             if echo "$ndk_check" | grep -q "flutter.ndkVersion"; then
-                log_warning "   - Using flutter.ndkVersion - 16KB support uncertain"
-                log_warning "   - Google Play requires 16KB support from Nov 1, 2025"
+                log_success "   - Using flutter.ndkVersion - 16KB page size supported automatically"
+            else
+                log_info "   - Hardcoded NDK detected - will offer to delegate to flutter.ndkVersion"
             fi
         else
-            log_info "   - NDK setting: not specified"
+            log_info "   - NDK setting: not specified (Flutter default provides 16KB support)"
         fi
     fi
 }
 
 # =============================================================================
-# 16KB Page Size Support Functions (RESTORED)
+# NDK Delegation (Flutter-managed, 16KB page size handled automatically)
 # =============================================================================
 
-update_ndk_version_for_16kb() {
+# As of Flutter 3.44.6, the recommended approach is to delegate the NDK version
+# to `flutter.ndkVersion`. Flutter's default NDK ($FLUTTER_DEFAULT_NDK_VERSION+)
+# already provides 16KB page size support, so no hardcoded NDK is needed.
+# This function converts any hardcoded ndkVersion back to flutter.ndkVersion.
+ensure_ndk_delegation() {
     local app_build_file="$1"
     local file_type="$2"
-    
+
     if [ ! -f "$app_build_file" ]; then
         log_warning "App build file not found: $app_build_file"
         return 1
     fi
-    
-    log_step "Updating NDK version for 16KB page size support (Google Play mandatory)"
-    
-    # Check current NDK version
-    local current_ndk=$(grep -o 'ndkVersion.*[0-9.]*' "$app_build_file" | head -1)
+
+    log_step "Ensuring NDK is delegated to flutter.ndkVersion (16KB handled by Flutter)"
+
+    # Check current NDK setting
+    local current_ndk=$(grep -o 'ndkVersion.*' "$app_build_file" | head -1)
     if [ -n "$current_ndk" ]; then
         log_info "Current NDK setting: $current_ndk"
-    fi
-    
-    # Ask for confirmation
-    if ! confirm_action "Update NDK to $REQUIRED_NDK_VERSION for 16KB support?" "true"; then
-        log_info "Skipping NDK version update"
+    else
+        log_info "No explicit ndkVersion set - Flutter default will be used (recommended)"
         return 0
     fi
-    
+
+    # Already delegated? Nothing to do.
+    if echo "$current_ndk" | grep -q "flutter.ndkVersion"; then
+        log_success "NDK already delegated to flutter.ndkVersion (16KB support automatic)"
+        return 0
+    fi
+
+    if ! confirm_action "Convert hardcoded NDK to flutter.ndkVersion (recommended)?" "true"; then
+        log_info "Keeping current NDK setting"
+        return 0
+    fi
+
     local modification_func=""
     case "$file_type" in
         "kotlin")
             modification_func="
-                if grep -q 'flutter.ndkVersion' '$app_build_file'; then
-                    sed -i '' 's/ndkVersion = flutter\.ndkVersion/ndkVersion = \"$REQUIRED_NDK_VERSION\"/g' '$app_build_file'
-                elif grep -q 'ndkVersion' '$app_build_file'; then
-                    sed -i '' 's/ndkVersion = \"[^\"]*\"/ndkVersion = \"$REQUIRED_NDK_VERSION\"/g' '$app_build_file'
-                else
-                    sed -i '' '/android {/a\\
-    ndkVersion = \"$REQUIRED_NDK_VERSION\"\\
-' '$app_build_file'
-                fi
+                sed -i '' 's/ndkVersion = \"[^\"]*\"/ndkVersion = flutter.ndkVersion/g' '$app_build_file'
             "
             ;;
         "groovy")
             modification_func="
-                if grep -q 'flutter.ndkVersion' '$app_build_file'; then
-                    sed -i '' 's/ndkVersion flutter\.ndkVersion/ndkVersion \"$REQUIRED_NDK_VERSION\"/g' '$app_build_file'
-                    sed -i '' 's/ndkVersion = flutter\.ndkVersion/ndkVersion = \"$REQUIRED_NDK_VERSION\"/g' '$app_build_file'
-                elif grep -q 'ndkVersion' '$app_build_file'; then
-                    sed -i '' 's/ndkVersion \"[^\"]*\"/ndkVersion \"$REQUIRED_NDK_VERSION\"/g' '$app_build_file'
-                    sed -i '' 's/ndkVersion = \"[^\"]*\"/ndkVersion = \"$REQUIRED_NDK_VERSION\"/g' '$app_build_file'
-                else
-                    sed -i '' '/android {/a\\
-        ndkVersion \"$REQUIRED_NDK_VERSION\"\\
-' '$app_build_file'
-                fi
+                sed -i '' 's/ndkVersion \"[^\"]*\"/ndkVersion flutter.ndkVersion/g' '$app_build_file'
+                sed -i '' 's/ndkVersion = \"[^\"]*\"/ndkVersion = flutter.ndkVersion/g' '$app_build_file'
             "
             ;;
     esac
-    
-    safe_modify_file "$app_build_file" "NDK version for 16KB support" "$modification_func"
-    
-    log_info "Performance improvement expected: 3-30% faster app startup, 4.5% better battery"
-    log_info "Compliance deadline: Google Play mandatory from Nov 1, 2025"
+
+    safe_modify_file "$app_build_file" "NDK delegation to flutter.ndkVersion" "$modification_func"
+
+    log_info "NDK now tracks Flutter's default ($FLUTTER_DEFAULT_NDK_VERSION+) - 16KB page size supported automatically"
 }
 
 # =============================================================================
@@ -339,9 +365,9 @@ update_kotlin_settings_gradle() {
         log_info "Skipping version updates"
     fi
     
-    # Check Flutter 3.35.3 standard structure
+    # Check Flutter 3.44.6 standard structure
     if ! grep -q "dev.flutter.flutter-plugin-loader" "$settings_file"; then
-        log_info "Flutter 3.35.3 standard plugin-loader not found. Manual check recommended."
+        log_info "Flutter 3.44.6 standard plugin-loader not found. Manual check recommended."
     fi
 }
 
@@ -374,37 +400,56 @@ update_kotlin_app_build() {
         safe_modify_file "$app_build_file" "Java 17 compileOptions update" "$modification_func"
     fi
     
-    # Kotlin JVM Target
+    # Kotlin JVM Target - handle both legacy (kotlinOptions) and modern
+    # (kotlin { compilerOptions { } }, the Flutter 3.29+ template) styles.
     if grep -q "kotlinOptions" "$app_build_file"; then
+        # Legacy kotlinOptions block present - update the target in place
         local modification_func="
             sed -i '' 's/jvmTarget = \"[^\"]*\"/jvmTarget = \"17\"/g' '$app_build_file'
         "
-        safe_modify_file "$app_build_file" "Kotlin JVM target update" "$modification_func"
+        safe_modify_file "$app_build_file" "Kotlin JVM target update (kotlinOptions)" "$modification_func"
+    elif grep -q "compilerOptions" "$app_build_file"; then
+        # Modern kotlin { compilerOptions { } } block present - update in place.
+        # Do NOT inject kotlinOptions: nesting it inside compileOptions breaks the build.
+        local modification_func="
+            sed -i '' 's/JvmTarget\.JVM_[0-9][0-9]*/JvmTarget.JVM_17/g' '$app_build_file'
+        "
+        safe_modify_file "$app_build_file" "Kotlin JVM target update (compilerOptions)" "$modification_func"
+    else
+        # No Kotlin JVM target configured - append a modern top-level kotlin block
+        local modification_func="
+            cat >> '$app_build_file' << 'KOTLINEOF'
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+KOTLINEOF
+        "
+        safe_modify_file "$app_build_file" "Kotlin JVM target addition (kotlin block)" "$modification_func"
+    fi
+    
+    # minSdk: let the user choose delegation vs pinning to 26
+    local minsdk_choice
+    minsdk_choice=$(choose_minsdk_strategy)
+    if [[ "$minsdk_choice" == "26" ]]; then
+        # Handle the flutter.minSdkVersion form first; the numeric pattern requires
+        # at least one digit so it can't match the empty string before 'flutter'.
+        local modification_func="
+            sed -i '' 's/minSdk = flutter\.minSdkVersion/minSdk = 26/g' '$app_build_file'
+            sed -i '' 's/minSdk = [0-9][0-9]*/minSdk = 26/g' '$app_build_file'
+        "
+        safe_modify_file "$app_build_file" "minSdk pinned to 26" "$modification_func"
     else
         local modification_func="
-            sed -i '' '/compileOptions {/a\\
-\\
-    kotlinOptions {\\
-        jvmTarget = \"17\"\\
-    }\\
-' '$app_build_file'
+            sed -i '' 's/minSdk = [0-9][0-9]*/minSdk = flutter.minSdkVersion/g' '$app_build_file'
         "
-        safe_modify_file "$app_build_file" "Kotlin JVM target addition" "$modification_func"
+        safe_modify_file "$app_build_file" "minSdk delegated to flutter.minSdkVersion" "$modification_func"
     fi
-    
-    # Check minSdk
-    local current_min_sdk=$(grep "minSdk" "$app_build_file" | grep -o '[0-9]*' | head -1)
-    if [ -n "$current_min_sdk" ] && [ "$current_min_sdk" -lt 26 ]; then
-        if confirm_action "Update minSdk from $current_min_sdk to 26?" "true"; then
-            local modification_func="
-                sed -i '' 's/minSdk = [0-9]*/minSdk = 26/g' '$app_build_file'
-            "
-            safe_modify_file "$app_build_file" "minSdk update to 26" "$modification_func"
-        fi
-    fi
-    
-    # 16KB page size support NDK version update
-    update_ndk_version_for_16kb "$app_build_file" "kotlin"
+
+    # NDK: delegate to flutter.ndkVersion (16KB handled automatically)
+    ensure_ndk_delegation "$app_build_file" "kotlin"
 }
 
 configure_kotlin_dsl_gradle() {
@@ -449,17 +494,37 @@ update_groovy_app_build() {
     
     log_step "Updating Groovy DSL app/build.gradle (Java 17 + 16KB support)"
     
-    # Java 17 compatibility
+    # Java 17 compatibility. Match any current version (not just 21) and both
+    # quote styles for jvmTarget, replacing only the value inside the quotes so
+    # we never leave a dangling quote.
     local modification_func="
-        sed -i '' 's/jvmTarget.*21/jvmTarget = '\''17'\''/g' '$app_build_file'
-        sed -i '' 's/jvmTarget.*= '\''21'\''/jvmTarget = '\''17'\''/g' '$app_build_file'
-        sed -i '' 's/jvmTarget.*= \"21\"/jvmTarget = \"17\"/g' '$app_build_file'
-        sed -i '' 's/JavaVersion\.VERSION_21/JavaVersion.VERSION_17/g' '$app_build_file'
+        sed -i '' 's/JavaVersion\.VERSION_[0-9][0-9_]*/JavaVersion.VERSION_17/g' '$app_build_file'
+        sed -i '' 's/jvmTarget = '\''[^'\'']*'\''/jvmTarget = '\''17'\''/g' '$app_build_file'
+        sed -i '' 's/jvmTarget = \"[^\"]*\"/jvmTarget = \"17\"/g' '$app_build_file'
+        sed -i '' 's/jvmTarget = JavaVersion\.VERSION_[0-9][0-9_]*/jvmTarget = JavaVersion.VERSION_17/g' '$app_build_file'
     "
     safe_modify_file "$app_build_file" "Java 17 compatibility" "$modification_func"
-    
-    # 16KB page size support NDK version update
-    update_ndk_version_for_16kb "$app_build_file" "groovy"
+
+    # minSdk: let the user choose delegation vs pinning to 26
+    local minsdk_choice
+    minsdk_choice=$(choose_minsdk_strategy)
+    if [[ "$minsdk_choice" == "26" ]]; then
+        local modification_func="
+            sed -i '' 's/minSdkVersion [0-9][0-9]*/minSdkVersion 26/g' '$app_build_file'
+            sed -i '' 's/minSdkVersion flutter\.minSdkVersion/minSdkVersion 26/g' '$app_build_file'
+            sed -i '' 's/minSdk [0-9][0-9]*/minSdk 26/g' '$app_build_file'
+        "
+        safe_modify_file "$app_build_file" "minSdk pinned to 26" "$modification_func"
+    else
+        local modification_func="
+            sed -i '' 's/minSdkVersion [0-9][0-9]*/minSdkVersion flutter.minSdkVersion/g' '$app_build_file'
+            sed -i '' 's/minSdk [0-9][0-9]*/minSdk flutter.minSdkVersion/g' '$app_build_file'
+        "
+        safe_modify_file "$app_build_file" "minSdk delegated to flutter.minSdkVersion" "$modification_func"
+    fi
+
+    # NDK: delegate to flutter.ndkVersion (16KB handled automatically)
+    ensure_ndk_delegation "$app_build_file" "groovy"
 }
 
 configure_groovy_dsl_gradle() {
@@ -513,44 +578,46 @@ configure_gradle_properties_universal() {
         return 1
     fi
     
-    log_step "Configuring Flutter 3.35.3 optimized gradle.properties"
-    
-    if confirm_action "Apply Gradle optimization settings? (6GB memory, parallel builds, etc.)" "true"; then
+    log_step "Configuring Flutter 3.44.6 optimized gradle.properties"
+
+    if confirm_action "Apply Gradle optimization settings? (6GB memory, parallel builds, caching, etc.)" "true"; then
         local modification_func="
             grep -v '# Flutter Build Fix' '$gradle_props' > '${gradle_props}.tmp' || true
             mv '${gradle_props}.tmp' '$gradle_props'
             cat >> '$gradle_props' << 'EOF'
 
-# Flutter Build Fix v$SCRIPT_VERSION - Flutter 3.35.3 Optimization
+# Flutter Build Fix v$SCRIPT_VERSION - Flutter 3.44.6 Optimization
 # Java 17 + Gradle $RECOMMENDED_GRADLE_VERSION + AGP $RECOMMENDED_AGP_VERSION
-# Flutter 3.35.3 performance optimized memory settings
+# Flutter 3.44.6 performance optimized memory settings
 org.gradle.jvmargs=-Xmx6G -XX:MaxMetaspaceSize=1G -XX:ReservedCodeCacheSize=512m -XX:+HeapDumpOnOutOfMemoryError
 org.gradle.parallel=true
 org.gradle.daemon=true
-org.gradle.configuration-cache=true
-org.gradle.configuration-cache.problems=warn
 org.gradle.caching=true
+
+# NOTE: Gradle configuration-cache is intentionally NOT enabled here.
+# Flutter 3.44.6 mandates android.builtInKotlin=false (its migrator re-adds it on
+# every build), and that flag is incompatible with the configuration cache:
+# serialization fails on AGP's builtInKotlinServices. The Flutter 3.44.6 project
+# template also omits configuration-cache for the same reason.
 
 # Android standard settings
 android.useAndroidX=true
 android.enableJetifier=true
 
-# Flutter 3.35.3 recommended settings
-flutter.minSdkVersion=26
+# Flutter 3.44.6 recommended settings (minSdk is delegated to flutter.minSdkVersion)
 kotlin.jvm.target.validation.mode=warning
 
 # Kotlin DSL and performance optimization
 org.gradle.kotlin.dsl.allWarningsAsErrors=false
 kotlin.daemon.jvm.options=-Xmx3072m
-org.gradle.unsafe.configuration-cache=true
 
-# Flutter 3.35.3 build performance improvements
+# Flutter 3.44.6 build performance improvements
 org.gradle.workers.max=4
 kotlin.incremental=true
 kotlin.incremental.useClasspathSnapshot=true
 EOF
         "
-        safe_modify_file "$gradle_props" "Flutter 3.35.3 optimization settings" "$modification_func"
+        safe_modify_file "$gradle_props" "Flutter 3.44.6 optimization settings" "$modification_func"
     else
         log_info "Skipping gradle.properties optimization"
     fi
@@ -843,7 +910,7 @@ clean_gradle_universal() {
 }
 
 check_ndk_version() {
-    log_step "Checking NDK version (Google Play 16KB page size support required)"
+    log_step "Checking NDK configuration (delegated to Flutter, 16KB page size automatic)"
     local ndk_version=""
 
     # 1. Check NDK version in local.properties
@@ -857,17 +924,11 @@ check_ndk_version() {
     fi
 
     if [ -n "$ndk_version" ]; then
-        local ndk_code=$(echo "$ndk_version" | tr -d '.' | cut -c 1-8)
-        log_info "Current NDK version: $ndk_version"
-        if [ "$ndk_code" -ge "$REQUIRED_NDK_VERSION_CODE" ]; then
-            log_success "NDK version $REQUIRED_NDK_VERSION or higher meets 16KB page size requirements"
-        else
-            log_warning "Current NDK version ($ndk_version) does not meet Google Play 16KB page size requirements ($REQUIRED_NDK_VERSION)"
-            log_info "Solution: Open Android Studio and install latest NDK (Side-by-side) in SDK Manager"
-            log_info "   (Tools -> SDK Manager -> SDK Tools tab -> NDK (Side-by-side))"
-        fi
+        log_info "Installed NDK version: $ndk_version"
+        log_success "Flutter delegates ndkVersion automatically (default ${FLUTTER_DEFAULT_NDK_VERSION}+ provides 16KB support)"
     else
-        log_warning "NDK version not found. Please check installation in Android Studio"
+        log_info "No NDK pinned - Flutter will use its bundled default (${FLUTTER_DEFAULT_NDK_VERSION}+, 16KB supported)"
+        log_info "If a build needs the NDK, install it via Android Studio (SDK Manager -> SDK Tools -> NDK Side-by-side)"
     fi
 }
 
@@ -958,7 +1019,7 @@ android_mode() {
     echo ""
     log_success "Android cleanup completed!"
     log_info "Both Groovy DSL and Kotlin DSL supported"
-    log_info "16KB page size support (Google Play mandatory Nov 2025)"
+    log_info "16KB page size support handled automatically via flutter.ndkVersion"
 }
 
 ios_mode() {
@@ -982,7 +1043,7 @@ full_mode() {
     echo ""
     log_success "Full cleanup completed!"
     log_info "Kotlin DSL and Groovy DSL perfect support"
-    log_info "16KB page size support (Google Play mandatory Nov 2025)"
+    log_info "16KB page size support handled automatically via flutter.ndkVersion"
 }
 
 # =============================================================================
@@ -992,7 +1053,7 @@ full_mode() {
 show_help() {
     echo -e "${BLUE}Flutter Build Fix v$SCRIPT_VERSION - Universal DSL Support${NC}"
     echo ""
-    echo "New features: Flutter 3.35.3 optimization + perfect Kotlin DSL (.kts) and Groovy DSL (.gradle) support!"
+    echo "New features: Flutter 3.44.6 optimization + perfect Kotlin DSL (.kts) and Groovy DSL (.gradle) support!"
     echo ""
     echo "Usage:"
     echo "  $0 [options] [mode]"
@@ -1016,7 +1077,7 @@ show_help() {
     echo "  $0 --ios --dry-run          # iOS preview changes"
     echo "  $0 --full --force           # Full cleanup (no confirmations)"
     echo ""
-    echo "Features: Flutter 3.35.3 optimization + automatic Kotlin DSL and Groovy DSL detection"
+    echo "Features: Flutter 3.44.6 optimization + automatic Kotlin DSL and Groovy DSL detection"
     echo "Performance: AGP $RECOMMENDED_AGP_VERSION + Gradle $RECOMMENDED_GRADLE_VERSION + 6GB memory optimization"
     echo "Safety: Verified version combinations for maximum stability"
     echo "Repository: https://github.com/$REPO"
@@ -1030,7 +1091,7 @@ show_version() {
     echo "Supported Gradle versions: ${STABLE_GRADLE_VERSIONS[*]}"
     echo "Kotlin DSL: Perfect support for Flutter 3.29+ new projects"
     echo "Groovy DSL: Perfect support for Flutter 3.28 and earlier existing projects"
-    echo "16KB Support: Google Play mandatory compliance (Nov 1, 2025)"
+    echo "16KB Support: Automatic via flutter.ndkVersion (Flutter 3.44.6 default NDK 28.2+)"
 }
 
 check_for_updates() {
@@ -1061,9 +1122,9 @@ main() {
     # Header output
     echo -e "${BLUE}"
     echo "=================================================================="
-    echo "    Flutter 3.35.3 Universal Build Fix Script"
+    echo "    Flutter 3.44.6 Universal Build Fix Script"
     echo "    Kotlin DSL + Groovy DSL Perfect Support | v$SCRIPT_VERSION"
-    echo "    Kotlin DSL: Flutter 3.35.3+ (.kts) | Groovy DSL: Flutter 3.28- (.gradle)"
+    echo "    Kotlin DSL: Flutter 3.44.6+ (.kts) | Groovy DSL: Flutter 3.28- (.gradle)"
     echo "    Performance: AGP $RECOMMENDED_AGP_VERSION | Gradle $RECOMMENDED_GRADLE_VERSION | Kotlin $RECOMMENDED_KOTLIN_VERSION"
     echo "    macOS only | Safe version management | 16KB Support"
     echo "    Author: Heesung Jin (kage2k)"
@@ -1102,7 +1163,7 @@ main() {
     
     echo ""
     log_info "Tip: Run regularly to keep your Flutter development environment in optimal condition!"
-    log_info "Flutter 3.35.3 optimization: Automatic support for both Kotlin DSL and Groovy DSL projects"
+    log_info "Flutter 3.44.6 optimization: Automatic support for both Kotlin DSL and Groovy DSL projects"
     log_info "Performance improvements: AGP $RECOMMENDED_AGP_VERSION + Gradle $RECOMMENDED_GRADLE_VERSION + memory optimization"
     log_info "Stability: Verified versions (${STABLE_GRADLE_VERSIONS[*]}) prioritized"
     log_info "Repository: https://github.com/$REPO"
