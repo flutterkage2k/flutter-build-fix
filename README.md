@@ -300,4 +300,4 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-**Ready for Google Play 2025 | Universal DSL Support | Production Tested**
+**Flutter 3.44.6 Ready | AGP 8.x Safe | Universal DSL Support | Production Tested**
