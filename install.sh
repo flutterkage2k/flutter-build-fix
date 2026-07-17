@@ -5,7 +5,7 @@
 # 
 # Repository: https://github.com/flutterkage2k/flutter-build-fix
 # Author: Heesung Jin (kage2k)
-# Version: 3.3.0 - Fixed Version Check & Location Issues
+# Version: 4.0.0 - Flutter 3.44.6 Support
 # =============================================================================
 
 set -e
@@ -118,7 +118,7 @@ get_latest_version() {
         echo "$latest_version"
     else
         log_warning "Could not fetch version info, using default"
-        echo "v3.3.0"
+        echo "v4.0.0"
     fi
 }
 
@@ -215,7 +215,7 @@ verify_installation() {
         log_success "Script installation verified"
         
         # Simple version display without running the script
-        log_info "Installed version: v3.3.0"
+        log_info "Installed version: v4.0.0"
         return 0
     else
         log_error "Installation verification failed"
@@ -308,7 +308,7 @@ show_completion_message() {
     log_info "Installation location: $INSTALL_DIR/$SCRIPT_NAME"
     log_info "Detected shell: $shell_type"
     log_info "Configuration file: $shell_rc"
-    log_info "Version: v3.3.0"
+    log_info "Version: v4.0.0"
     echo ""
     echo -e "${BLUE}Usage Commands:${NC}"
     echo "  flutter-fix    # Full cleanup (Android + iOS)"
@@ -335,10 +335,10 @@ show_completion_message() {
     echo "  curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash"
     echo ""
     echo -e "${BLUE}Features:${NC}"
-    echo "  • Flutter 3.35.3 optimization"
+    echo "  • Flutter 3.44.6 optimization"
     echo "  • Kotlin DSL + Groovy DSL support"
-    echo "  • 16KB page size support (Google Play 2025)"
-    echo "  • AGP 8.7.3 + Gradle 8.12 + Kotlin 2.1.0"
+    echo "  • 16KB page size support (automatic via flutter.ndkVersion)"
+    echo "  • AGP 8.11.1 + Gradle 8.14 + Kotlin 2.2.20 (AGP 9 safe)"
     echo "  • Safe operations with backups"
     echo ""
     echo -e "${CYAN}Documentation:${NC}"

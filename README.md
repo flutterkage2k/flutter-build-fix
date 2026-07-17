@@ -1,6 +1,6 @@
-# Flutter Build Fix v3.3.0 - Universal DSL Support
+# Flutter Build Fix v4.0.0 - Universal DSL Support
 
-[![Flutter](https://img.shields.io/badge/Flutter-3.35.3-blue.svg)](https://flutter.dev)
+[![Flutter](https://img.shields.io/badge/Flutter-3.44.6-blue.svg)](https://flutter.dev)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20|%20Linux-lightgrey.svg)](https://github.com/flutterkage2k/flutter-build-fix)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -54,7 +54,7 @@ The script automatically detects your project type:
 - `build.gradle`
 
 ### Supported Flutter Versions
-- ✅ Flutter 3.35.3 (latest stable)
+- ✅ Flutter 3.44.6 (latest stable)
 - ✅ Flutter 3.29+ (Kotlin DSL projects)
 - ✅ Flutter 3.28 and earlier (Groovy DSL projects)
 - ✅ All Flutter versions with Android support
@@ -84,10 +84,20 @@ flutter_build_fix.sh --full       # Both platforms
 ### Configuration Details
 
 #### Gradle Versions (Verified Stable)
-- **Recommended**: Gradle 8.12
-- **Supported**: 8.12, 8.11.1, 8.10, 8.9
-- **AGP**: 8.7.3 (Android Gradle Plugin)
-- **Kotlin**: 2.1.0
+- **Recommended**: Gradle 8.14
+- **Supported**: 8.14, 8.13, 8.12, 8.11.1
+- **AGP**: 8.11.1 (Android Gradle Plugin — stays on 8.x to avoid AGP 9 breakage)
+- **Kotlin**: 2.2.20
+
+> These values clear Flutter 3.44.6's own `DependencyVersionChecker` warning
+> thresholds (Gradle ≥ 8.14, AGP ≥ 8.11.1, Kotlin ≥ 2.2.20, Java ≥ 17) so
+> `flutter analyze --suggestions` stays clean, while deliberately staying on
+> AGP 8.x. AGP 9 removes the legacy `kotlin-android` plugin and breaks many
+> existing apps and plugins, so this tool pins AGP 8.11.1 to avoid it. On AGP 8.x
+> the `kotlin-android` plugin works natively, so the AGP 9 opt-out flags
+> (`android.builtInKotlin` / `android.newDsl`) are not needed — and because they
+> break Gradle's configuration cache, the script strips them from
+> `gradle.properties` when present.
 
 #### Java Configuration
 - **Target Version**: Java 17
@@ -106,19 +116,19 @@ org.gradle.caching=true
 ## 16KB Page Size Support
 
 ### Why It Matters
-Starting November 1, 2025, Google Play requires apps to support 16KB page sizes for improved performance on newer Android devices.
+Google Play requires apps to support 16KB page sizes for newer Android devices. As of Flutter 3.44.6 this is handled automatically — Flutter's bundled NDK (28.2.13676358+) already builds 16KB-compatible native code.
 
 ### What We Configure
-- **NDK Version**: 29.0.13846066 (minimum required)
-- **Performance Gains**: 3-30% faster startup, 4.5% better battery
-- **Compatibility**: Maintains backward compatibility with existing devices
+- **NDK Version**: delegated to `flutter.ndkVersion` (no hardcoded NDK)
+- **Why delegation**: tracks Flutter's tested default and avoids version conflicts
+- **Migration**: if a project pins an old explicit NDK, the script offers to convert it back to `flutter.ndkVersion`
 
 ### Manual Verification
 ```bash
-# Check your current NDK version
+# Check your current NDK setting
 grep "ndkVersion" android/app/build.gradle*
 
-# Should show: ndkVersion = "29.0.13846066" or higher
+# Recommended (delegated): ndkVersion = flutter.ndkVersion
 ```
 
 ## Troubleshooting
@@ -155,7 +165,7 @@ gradle --stop
 1. Open Android Studio
 2. Go to Tools → SDK Manager
 3. SDK Tools tab → Install NDK (Side-by-side)
-4. Select version 29.0.13846066 or higher
+4. Install the version Flutter requests (matches `flutter.ndkVersion`, currently 28.2.13676358)
 
 ### Build Performance Tips
 - Use `ff-auto` for fastest automated fixes
@@ -209,12 +219,20 @@ android/
 
 ## Migration Guide
 
-### From v2.x to v3.3.0
-1. **Backup your project**: `git commit -am "Before flutter-fix v3.3.0"`
+### From v3.x to v4.0.0
+1. **Backup your project**: `git commit -am "Before flutter-fix v4.0.0"`
 2. **Run installation**: Use the new install script
 3. **Test with dry-run**: `ff-dry` to preview changes
 4. **Apply changes**: `flutter-fix`
 5. **Verify build**: `flutter build apk --debug`
+
+> **What changed in v4.0.0**: targets Flutter 3.44.6 (AGP 8.11.1 / Gradle 8.14 /
+> Kotlin 2.2.20), delegates NDK & minSdk to Flutter instead of hardcoding them,
+> and lets you choose minSdk (delegate vs pin 26) at runtime. The old forced NDK
+> `29.0.13846066` is removed, and Gradle's configuration cache is left disabled
+> because it is incompatible with the `android.builtInKotlin=false` flag that
+> Flutter 3.44.6 mandates. Also fixes several latent bugs in the config engine
+> (project-type detection, Kotlin `jvmTarget` injection, Groovy Java-17 rewrite).
 
 ### New Project Setup
 For new Flutter projects (3.29+):
