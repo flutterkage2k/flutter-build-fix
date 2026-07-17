@@ -1,0 +1,6 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Backups created by flutter_build_fix.sh
+*.backup.*
