@@ -5,7 +5,7 @@
 # 
 # Repository: https://github.com/flutterkage2k/flutter-build-fix
 # Author: Heesung Jin (kage2k)
-# Version: 4.0.1 - Flutter 3.44.6 Support
+# Version: 4.0.2 - Flutter 3.44.6 Support
 # =============================================================================
 
 set -e
@@ -32,23 +32,28 @@ log_warning() { echo -e "${YELLOW}[WARNING] $1${NC}"; }
 log_error()   { echo -e "${RED}[ERROR] $1${NC}"; }
 
 # Enhanced shell detection
+#
+# $SHELL (the user's login shell) is checked FIRST and is authoritative, because
+# it decides which rc file the user's interactive sessions actually read.
+# $ZSH_VERSION/$BASH_VERSION describe the shell *running this installer*, which
+# is not the same thing: the documented install path is
+# `curl ... | bash`, so those variables always said "bash" and zsh users got
+# their aliases written to ~/.bashrc, where their shell never read them.
 detect_shell() {
+    case "$SHELL" in
+        */zsh)  echo "zsh";  return ;;
+        */bash) echo "bash"; return ;;
+        */fish) echo "fish"; return ;;
+    esac
+
+    # $SHELL unset or unrecognized - fall back to the shell running this script
     if [ -n "$ZSH_VERSION" ]; then
         echo "zsh"
-        return
     elif [ -n "$BASH_VERSION" ]; then
         echo "bash"
-        return
+    else
+        ps -p "$PPID" -o comm= 2>/dev/null | sed 's/-//' | awk '{print tolower($1)}' || echo "bash"
     fi
-
-    case "$SHELL" in
-        */zsh) echo "zsh" ;;
-        */bash) echo "bash" ;;
-        */fish) echo "fish" ;;
-        *) 
-            ps -p "$PPID" -o comm= 2>/dev/null | sed 's/-//' | awk '{print tolower($1)}' || echo "bash"
-            ;;
-    esac
 }
 
 # Get shell configuration file
@@ -118,7 +123,7 @@ get_latest_version() {
         echo "$latest_version"
     else
         log_warning "Could not fetch version info, using default"
-        echo "v4.0.1"
+        echo "v4.0.2"
     fi
 }
 
@@ -215,7 +220,7 @@ verify_installation() {
         log_success "Script installation verified"
         
         # Simple version display without running the script
-        log_info "Installed version: v4.0.1"
+        log_info "Installed version: v4.0.2"
         return 0
     else
         log_error "Installation verification failed"
@@ -308,7 +313,7 @@ show_completion_message() {
     log_info "Installation location: $INSTALL_DIR/$SCRIPT_NAME"
     log_info "Detected shell: $shell_type"
     log_info "Configuration file: $shell_rc"
-    log_info "Version: v4.0.1"
+    log_info "Version: v4.0.2"
     echo ""
     echo -e "${BLUE}Usage Commands:${NC}"
     echo "  flutter-fix    # Full cleanup (Android + iOS)"
