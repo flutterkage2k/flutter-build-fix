@@ -86,18 +86,22 @@ flutter_build_fix.sh --full       # Both platforms
 #### Gradle Versions (Verified Stable)
 - **Recommended**: Gradle 8.14
 - **Supported**: 8.14, 8.13, 8.12, 8.11.1
-- **AGP**: 8.11.1 (Android Gradle Plugin — stays on 8.x to avoid AGP 9 breakage)
+- **AGP**: 8.10.0 (Android Gradle Plugin — capped for Android Studio compatibility)
 - **Kotlin**: 2.2.20
 
-> These values clear Flutter 3.44.6's own `DependencyVersionChecker` warning
-> thresholds (Gradle ≥ 8.14, AGP ≥ 8.11.1, Kotlin ≥ 2.2.20, Java ≥ 17) so
-> `flutter analyze --suggestions` stays clean, while deliberately staying on
-> AGP 8.x. AGP 9 removes the legacy `kotlin-android` plugin and breaks many
-> existing apps and plugins, so this tool pins AGP 8.11.1 to avoid it. On AGP 8.x
-> the `kotlin-android` plugin works natively, so the AGP 9 opt-out flags
-> (`android.builtInKotlin` / `android.newDsl`) are not needed — and because they
-> break Gradle's configuration cache, the script strips them from
-> `gradle.properties` when present.
+> **Why AGP 8.10.0 and not 8.11.1?** Flutter 3.44.6 *prefers* AGP 8.11.1 and
+> prints a "will soon be dropped" warning below it — but that is only a warning
+> (Flutter errors below 8.6.0). Android Studio is stricter: it **refuses to open**
+> a project whose AGP exceeds what that IDE release supports, and Android Studio
+> 2024.3 (Meerkat) caps at 8.10.0. A broken IDE is worse than a build warning, so
+> the tool targets 8.10.0. If you are on Android Studio 2025.1 or newer, you can
+> safely raise AGP to 8.11.1 and the Flutter warning disappears.
+>
+> The tool also deliberately stays on **AGP 8.x**: AGP 9 removes the legacy
+> `kotlin-android` plugin and breaks many existing apps and plugins. On AGP 8.x
+> that plugin works natively, so the AGP 9 opt-out flags
+> (`android.builtInKotlin` / `android.newDsl`) are unnecessary — and since they
+> break Gradle's configuration cache, configuration-cache is left disabled.
 
 #### Java Configuration
 - **Target Version**: Java 17
