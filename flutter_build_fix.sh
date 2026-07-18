@@ -5,7 +5,7 @@
 #
 # Repository: https://github.com/flutterkage2k/flutter-build-fix
 # Author: Heesung Jin (kage2k)
-# Version: 4.0.2 - Flutter 3.44.6 Support (flutter delegation, AGP 9 safe)
+# Version: 4.1.0 - Flutter 3.44.6 Support (flutter delegation, AGP 9 safe)
 # =============================================================================
 
 set -e
@@ -20,15 +20,22 @@ PURPLE='\033[0;35m'
 NC='\033[0m'
 
 # Version information
-SCRIPT_VERSION="4.0.2"
+SCRIPT_VERSION="4.1.0"
 REPO="flutterkage2k/flutter-build-fix"
 
 # Flutter 3.44.6 optimized version list (July 2026 update)
-# Values chosen to clear Flutter's own DependencyVersionChecker warn thresholds
-# (Gradle >= 8.14, AGP >= 8.11.1, Kotlin >= 2.2.20, Java >= 17) while staying on
-# AGP 8.x to avoid the AGP 9 built-in-Kotlin breakage in existing projects.
+# Gradle/Kotlin/Java are set to clear Flutter's DependencyVersionChecker warn
+# thresholds, and we stay on AGP 8.x to avoid the AGP 9 built-in-Kotlin breakage.
+#
+# AGP is deliberately 8.10.0, NOT Flutter's preferred 8.11.1. Android Studio
+# refuses to open a project whose AGP exceeds what that IDE release supports, and
+# Android Studio 2024.3 (Meerkat) caps at 8.10.0. Flutter only *warns* below
+# 8.11.1 (it errors below 8.6.0), so 8.10.0 costs a cosmetic warning while
+# 8.11.1 would hard-break the IDE for anyone not on Android Studio 2025.1+.
+# A broken IDE is worse than a warning. Raise this once your Android Studio does.
 STABLE_GRADLE_VERSIONS=("8.14" "8.13" "8.12" "8.11.1")
-RECOMMENDED_AGP_VERSION="8.11.1"
+RECOMMENDED_AGP_VERSION="8.10.0"
+AGP_VERSION_FLUTTER_PREFERS="8.11.1"
 RECOMMENDED_KOTLIN_VERSION="2.2.20"
 RECOMMENDED_GRADLE_VERSION="8.14"
 
@@ -147,6 +154,16 @@ choose_minsdk_strategy() {
     else
         echo "delegate"
     fi
+}
+
+# Explain why AGP is pinned below what Flutter asks for, so the (harmless)
+# Flutter warning at build time is expected rather than alarming.
+log_agp_compatibility_note() {
+    log_info "AGP set to $RECOMMENDED_AGP_VERSION for Android Studio compatibility."
+    log_info "   Flutter prefers $AGP_VERSION_FLUTTER_PREFERS and will print a 'will soon be dropped'"
+    log_info "   warning at build time - that is expected and does not break the build."
+    log_info "   Android Studio 2024.3 and older cannot open a project using AGP $AGP_VERSION_FLUTTER_PREFERS."
+    log_info "   On Android Studio 2025.1+ you can safely raise AGP to $AGP_VERSION_FLUTTER_PREFERS."
 }
 
 # Safe file modification with dry-run support
@@ -366,6 +383,7 @@ update_kotlin_settings_gradle() {
             sed -i '' 's/id(\"org.jetbrains.kotlin.android\") version \"[^\"]*\"/id(\"org.jetbrains.kotlin.android\") version \"$RECOMMENDED_KOTLIN_VERSION\"/g' '$settings_file'
         "
         safe_modify_file "$settings_file" "AGP and Kotlin versions" "$modification_func"
+        log_agp_compatibility_note
     else
         log_info "Skipping version updates"
     fi
@@ -493,6 +511,7 @@ update_groovy_settings_gradle() {
             sed -i '' 's/id '\''org.jetbrains.kotlin.android'\'' version '\''[^'\'']*'\''/id '\''org.jetbrains.kotlin.android'\'' version '\''$RECOMMENDED_KOTLIN_VERSION'\''/g' '$settings_file'
         "
         safe_modify_file "$settings_file" "AGP and Kotlin versions" "$modification_func"
+        log_agp_compatibility_note
     else
         log_info "Skipping version updates"
     fi
