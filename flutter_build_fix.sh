@@ -20,7 +20,7 @@ PURPLE='\033[0;35m'
 NC='\033[0m'
 
 # Version information
-SCRIPT_VERSION="4.0.0"
+SCRIPT_VERSION="4.0.1"
 REPO="flutterkage2k/flutter-build-fix"
 
 # Flutter 3.44.6 optimized version list (July 2026 update)
@@ -356,8 +356,13 @@ update_kotlin_settings_gradle() {
     fi
     
     if [[ "$should_update" == "true" ]]; then
+        # com.android.library / .dynamic-feature / .test share the AGP version and
+        # must be bumped together - a mismatch breaks the build.
         local modification_func="
             sed -i '' 's/id(\"com.android.application\") version \"[^\"]*\"/id(\"com.android.application\") version \"$RECOMMENDED_AGP_VERSION\"/g' '$settings_file'
+            sed -i '' 's/id(\"com.android.library\") version \"[^\"]*\"/id(\"com.android.library\") version \"$RECOMMENDED_AGP_VERSION\"/g' '$settings_file'
+            sed -i '' 's/id(\"com.android.dynamic-feature\") version \"[^\"]*\"/id(\"com.android.dynamic-feature\") version \"$RECOMMENDED_AGP_VERSION\"/g' '$settings_file'
+            sed -i '' 's/id(\"com.android.test\") version \"[^\"]*\"/id(\"com.android.test\") version \"$RECOMMENDED_AGP_VERSION\"/g' '$settings_file'
             sed -i '' 's/id(\"org.jetbrains.kotlin.android\") version \"[^\"]*\"/id(\"org.jetbrains.kotlin.android\") version \"$RECOMMENDED_KOTLIN_VERSION\"/g' '$settings_file'
         "
         safe_modify_file "$settings_file" "AGP and Kotlin versions" "$modification_func"
@@ -475,9 +480,17 @@ update_groovy_settings_gradle() {
     log_step "Updating Groovy DSL settings.gradle"
     
     if confirm_action "Update AGP to $RECOMMENDED_AGP_VERSION and Kotlin to $RECOMMENDED_KOTLIN_VERSION?" "true"; then
+        # Groovy allows both quote styles, and every com.android.* plugin shares
+        # the AGP version - they must all be bumped together.
         local modification_func="
             sed -i '' 's/id \"com.android.application\" version \"[^\"]*\"/id \"com.android.application\" version \"$RECOMMENDED_AGP_VERSION\"/g' '$settings_file'
+            sed -i '' 's/id \"com.android.library\" version \"[^\"]*\"/id \"com.android.library\" version \"$RECOMMENDED_AGP_VERSION\"/g' '$settings_file'
+            sed -i '' 's/id \"com.android.dynamic-feature\" version \"[^\"]*\"/id \"com.android.dynamic-feature\" version \"$RECOMMENDED_AGP_VERSION\"/g' '$settings_file'
             sed -i '' 's/id \"org.jetbrains.kotlin.android\" version \"[^\"]*\"/id \"org.jetbrains.kotlin.android\" version \"$RECOMMENDED_KOTLIN_VERSION\"/g' '$settings_file'
+            sed -i '' 's/id '\''com.android.application'\'' version '\''[^'\'']*'\''/id '\''com.android.application'\'' version '\''$RECOMMENDED_AGP_VERSION'\''/g' '$settings_file'
+            sed -i '' 's/id '\''com.android.library'\'' version '\''[^'\'']*'\''/id '\''com.android.library'\'' version '\''$RECOMMENDED_AGP_VERSION'\''/g' '$settings_file'
+            sed -i '' 's/id '\''com.android.dynamic-feature'\'' version '\''[^'\'']*'\''/id '\''com.android.dynamic-feature'\'' version '\''$RECOMMENDED_AGP_VERSION'\''/g' '$settings_file'
+            sed -i '' 's/id '\''org.jetbrains.kotlin.android'\'' version '\''[^'\'']*'\''/id '\''org.jetbrains.kotlin.android'\'' version '\''$RECOMMENDED_KOTLIN_VERSION'\''/g' '$settings_file'
         "
         safe_modify_file "$settings_file" "AGP and Kotlin versions" "$modification_func"
     else
