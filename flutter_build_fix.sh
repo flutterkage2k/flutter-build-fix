@@ -5,7 +5,7 @@
 #
 # Repository: https://github.com/flutterkage2k/flutter-build-fix
 # Author: Heesung Jin (kage2k)
-# Version: 4.1.0 - Flutter 3.44.6 Support (flutter delegation, AGP 9 safe)
+# Version: 4.2.0 - Flutter 3.44.6 Support (flutter delegation, AGP 9 safe)
 # =============================================================================
 
 set -e
@@ -20,23 +20,31 @@ PURPLE='\033[0;35m'
 NC='\033[0m'
 
 # Version information
-SCRIPT_VERSION="4.1.0"
+SCRIPT_VERSION="4.2.0"
 REPO="flutterkage2k/flutter-build-fix"
 
 # Flutter 3.44.6 optimized version list (July 2026 update)
 # Gradle/Kotlin/Java are set to clear Flutter's DependencyVersionChecker warn
 # thresholds, and we stay on AGP 8.x to avoid the AGP 9 built-in-Kotlin breakage.
 #
-# AGP is deliberately 8.10.0, NOT Flutter's preferred 8.11.1. Android Studio
-# refuses to open a project whose AGP exceeds what that IDE release supports, and
-# Android Studio 2024.3 (Meerkat) caps at 8.10.0. Flutter only *warns* below
-# 8.11.1 (it errors below 8.6.0), so 8.10.0 costs a cosmetic warning while
-# 8.11.1 would hard-break the IDE for anyone not on Android Studio 2025.1+.
-# A broken IDE is worse than a warning. Raise this once your Android Studio does.
+# GUIDING RULE: never trade a working build for a silenced warning. Flutter's
+# preferred AGP/Kotlin versions are forward-looking and only produce *warnings*,
+# while the surrounding ecosystem (Android Studio releases, plugin authors) lags
+# behind and fails *hard*. Both values below sit one notch under what Flutter
+# asks for, because chasing Flutter's numbers broke real builds:
+#
+#   AGP 8.11.1     -> Android Studio 2024.3 (Meerkat) refuses to open the project
+#                     at all; it caps at 8.10.0. Flutter errors only below 8.6.0.
+#   Kotlin 2.2.20  -> Kotlin 2.2 removed languageVersion 1.6, which plugins such
+#                     as sentry_flutter still declare, so their compile fails
+#                     outright. Flutter errors only below KGP 2.0.0.
+#
+# Raise each once your IDE and plugins have caught up.
 STABLE_GRADLE_VERSIONS=("8.14" "8.13" "8.12" "8.11.1")
 RECOMMENDED_AGP_VERSION="8.10.0"
 AGP_VERSION_FLUTTER_PREFERS="8.11.1"
-RECOMMENDED_KOTLIN_VERSION="2.2.20"
+RECOMMENDED_KOTLIN_VERSION="2.1.0"
+KOTLIN_VERSION_FLUTTER_PREFERS="2.2.20"
 RECOMMENDED_GRADLE_VERSION="8.14"
 
 # NDK/SDK are delegated to Flutter (flutter.ndkVersion / flutter.compileSdkVersion).
@@ -156,14 +164,16 @@ choose_minsdk_strategy() {
     fi
 }
 
-# Explain why AGP is pinned below what Flutter asks for, so the (harmless)
-# Flutter warning at build time is expected rather than alarming.
+# Explain why AGP and Kotlin are pinned below what Flutter asks for, so the
+# (harmless) Flutter warnings at build time are expected rather than alarming.
 log_agp_compatibility_note() {
-    log_info "AGP set to $RECOMMENDED_AGP_VERSION for Android Studio compatibility."
-    log_info "   Flutter prefers $AGP_VERSION_FLUTTER_PREFERS and will print a 'will soon be dropped'"
-    log_info "   warning at build time - that is expected and does not break the build."
-    log_info "   Android Studio 2024.3 and older cannot open a project using AGP $AGP_VERSION_FLUTTER_PREFERS."
-    log_info "   On Android Studio 2025.1+ you can safely raise AGP to $AGP_VERSION_FLUTTER_PREFERS."
+    log_info "AGP $RECOMMENDED_AGP_VERSION / Kotlin $RECOMMENDED_KOTLIN_VERSION chosen for ecosystem compatibility."
+    log_info "   Flutter prefers AGP $AGP_VERSION_FLUTTER_PREFERS and Kotlin $KOTLIN_VERSION_FLUTTER_PREFERS, and will print"
+    log_info "   'will soon be dropped' warnings at build time - expected, and the build still succeeds."
+    log_info "   Why lower: AGP $AGP_VERSION_FLUTTER_PREFERS stops Android Studio 2024.3 from opening the project,"
+    log_info "   and Kotlin $KOTLIN_VERSION_FLUTTER_PREFERS drops languageVersion 1.6, breaking plugins that still use it"
+    log_info "   (for example sentry_flutter). Both of those are hard failures, not warnings."
+    log_info "   Raise them once your Android Studio and plugins have caught up."
 }
 
 # Safe file modification with dry-run support
@@ -614,7 +624,7 @@ configure_gradle_properties_universal() {
 
     if confirm_action "Apply Gradle optimization settings? (6GB memory, parallel builds, caching, etc.)" "true"; then
         local modification_func="
-            grep -v '# Flutter Build Fix' '$gradle_props' > '${gradle_props}.tmp' || true
+            grep -vE '# Flutter Build Fix|^kotlin\.incremental\.useClasspathSnapshot=|^org\.gradle\.unsafe\.configuration-cache=' '$gradle_props' > '${gradle_props}.tmp' || true
             mv '${gradle_props}.tmp' '$gradle_props'
             cat >> '$gradle_props' << 'EOF'
 
@@ -644,9 +654,12 @@ org.gradle.kotlin.dsl.allWarningsAsErrors=false
 kotlin.daemon.jvm.options=-Xmx3072m
 
 # Flutter 3.44.6 build performance improvements
+# NOTE: kotlin.incremental.useClasspathSnapshot is deliberately NOT set. Kotlin
+# removed the history-based incremental compilation that flag toggled, and now
+# warns that it is unsupported. ABI-snapshot incremental compilation is the
+# default and needs no flag.
 org.gradle.workers.max=4
 kotlin.incremental=true
-kotlin.incremental.useClasspathSnapshot=true
 EOF
         "
         safe_modify_file "$gradle_props" "Flutter 3.44.6 optimization settings" "$modification_func"
