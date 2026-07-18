@@ -87,15 +87,24 @@ flutter_build_fix.sh --full       # Both platforms
 - **Recommended**: Gradle 8.14
 - **Supported**: 8.14, 8.13, 8.12, 8.11.1
 - **AGP**: 8.10.0 (Android Gradle Plugin — capped for Android Studio compatibility)
-- **Kotlin**: 2.2.20
+- **Kotlin**: 2.1.0 (capped for plugin compatibility)
 
-> **Why AGP 8.10.0 and not 8.11.1?** Flutter 3.44.6 *prefers* AGP 8.11.1 and
-> prints a "will soon be dropped" warning below it — but that is only a warning
-> (Flutter errors below 8.6.0). Android Studio is stricter: it **refuses to open**
-> a project whose AGP exceeds what that IDE release supports, and Android Studio
-> 2024.3 (Meerkat) caps at 8.10.0. A broken IDE is worse than a build warning, so
-> the tool targets 8.10.0. If you are on Android Studio 2025.1 or newer, you can
-> safely raise AGP to 8.11.1 and the Flutter warning disappears.
+> **Why AGP 8.10.0 and Kotlin 2.1.0, not the versions Flutter prefers?**
+>
+> **Guiding rule: never trade a working build for a silenced warning.** Flutter
+> 3.44.6 prefers AGP 8.11.1 and Kotlin 2.2.20, and prints "will soon be dropped"
+> warnings below them — but those are only *warnings*. The surrounding ecosystem
+> fails *hard*:
+>
+> | Version Flutter prefers | What actually breaks |
+> |---|---|
+> | AGP 8.11.1 | Android Studio 2024.3 (Meerkat) **refuses to open the project**; it caps at 8.10.0. Flutter errors only below 8.6.0. |
+> | Kotlin 2.2.20 | Kotlin 2.2 removed `languageVersion 1.6`, which plugins like `sentry_flutter` still declare — their compile **fails outright**. Flutter errors only below KGP 2.0.0. |
+>
+> Both were hit on real projects, so the tool sits one notch below Flutter's
+> preference on each. You will see the Flutter warnings at build time; they are
+> expected and harmless. Raise either version once your Android Studio and
+> plugins have caught up.
 >
 > The tool also deliberately stays on **AGP 8.x**: AGP 9 removes the legacy
 > `kotlin-android` plugin and breaks many existing apps and plugins. On AGP 8.x
