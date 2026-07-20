@@ -5,7 +5,7 @@
 #
 # Repository: https://github.com/flutterkage2k/flutter-build-fix
 # Author: Heesung Jin (kage2k)
-# Version: 4.2.0 - Flutter 3.44.6 Support (flutter delegation, AGP 9 safe)
+# Version: 4.2.1 - Flutter 3.44.6 Support (flutter delegation, AGP 9 safe)
 # =============================================================================
 
 set -e
@@ -20,7 +20,7 @@ PURPLE='\033[0;35m'
 NC='\033[0m'
 
 # Version information
-SCRIPT_VERSION="4.2.0"
+SCRIPT_VERSION="4.2.1"
 REPO="flutterkage2k/flutter-build-fix"
 
 # Flutter 3.44.6 optimized version list (July 2026 update)
@@ -130,9 +130,18 @@ confirm_action() {
     fi
     
     if [[ "$INTERACTIVE_MODE" == "true" ]]; then
-        read -p "$message (y/n) " -n 1 -r
+        # Honor default_yes on a bare Enter. Callers pass "true" meaning
+        # yes-by-default; ignoring it here silently skipped the AGP/Kotlin
+        # rewrite for anyone who just pressed Enter through the prompts.
+        local hint="y/N"
+        [[ "$default_yes" == "true" ]] && hint="Y/n"
+        read -p "$message ($hint) " -n 1 -r
         echo
-        [[ $REPLY =~ ^[Yy]$ ]]
+        if [[ -z "$REPLY" ]]; then
+            [[ "$default_yes" == "true" ]]
+        else
+            [[ $REPLY =~ ^[Yy]$ ]]
+        fi
     else
         # Default behavior when not interactive
         [[ "$default_yes" == "true" ]]
