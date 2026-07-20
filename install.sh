@@ -5,7 +5,7 @@
 # 
 # Repository: https://github.com/flutterkage2k/flutter-build-fix
 # Author: Heesung Jin (kage2k)
-# Version: 4.3.0 - Flutter 3.44.6 Support
+# Version: 4.3.1 - Flutter 3.44.6 Support
 # =============================================================================
 
 set -e
@@ -123,7 +123,7 @@ get_latest_version() {
         echo "$latest_version"
     else
         log_warning "Could not fetch version info, using default"
-        echo "v4.3.0"
+        echo "v4.3.1"
     fi
 }
 
@@ -220,7 +220,7 @@ verify_installation() {
         log_success "Script installation verified"
         
         # Simple version display without running the script
-        log_info "Installed version: v4.3.0"
+        log_info "Installed version: v4.3.1"
         return 0
     else
         log_error "Installation verification failed"
@@ -313,7 +313,7 @@ show_completion_message() {
     log_info "Installation location: $INSTALL_DIR/$SCRIPT_NAME"
     log_info "Detected shell: $shell_type"
     log_info "Configuration file: $shell_rc"
-    log_info "Version: v4.3.0"
+    log_info "Version: v4.3.1"
     echo ""
     echo -e "${BLUE}Usage Commands:${NC}"
     echo "  flutter-fix    # Full cleanup (Android + iOS)"
