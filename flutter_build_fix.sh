@@ -5,7 +5,7 @@
 #
 # Repository: https://github.com/flutterkage2k/flutter-build-fix
 # Author: Heesung Jin (kage2k)
-# Version: 4.2.1 - Flutter 3.44.6 Support (flutter delegation, AGP 9 safe)
+# Version: 4.3.0 - Flutter 3.44.6 Support (flutter delegation, AGP 9 safe)
 # =============================================================================
 
 set -e
@@ -20,7 +20,7 @@ PURPLE='\033[0;35m'
 NC='\033[0m'
 
 # Version information
-SCRIPT_VERSION="4.2.1"
+SCRIPT_VERSION="4.3.0"
 REPO="flutterkage2k/flutter-build-fix"
 
 # Flutter 3.44.6 optimized version list (July 2026 update)
@@ -100,7 +100,7 @@ parse_arguments() {
                 show_version
                 exit 0
                 ;;
-            --android|--ios|--full)
+            --android|--ios|--full|--config-only)
                 # Store mode for later processing
                 EXECUTION_MODE=$1
                 shift
@@ -1064,6 +1064,22 @@ test_ios_build() {
 # Execution Modes
 # =============================================================================
 
+# Rewrites the Gradle config only: AGP/Kotlin versions, Java 17, gradle.properties
+# and the wrapper. Deliberately skips the expensive parts of android_mode - the
+# global ~/.gradle cache wipe, flutter clean/pub get, and the debug build test -
+# so it can run before every release build without forcing a dependency
+# re-download. Use when the config is all you want corrected.
+config_only_mode() {
+    echo -e "${GREEN}[MODE] Config-only mode started (no cache wipe, no build test)${NC}"
+    echo ""
+    setup_java17
+    configure_gradle_universal
+    echo ""
+    log_success "Gradle configuration updated!"
+    log_info "Skipped: Gradle cache cleanup, flutter clean, build test"
+    log_info "Run --android or --full when you need the full cleanup"
+}
+
 android_mode() {
     echo -e "${GREEN}[MODE] Android universal mode started${NC}"
     echo ""
@@ -1116,6 +1132,7 @@ show_help() {
     echo "  --full      Full cleanup (Android + iOS, default)"
     echo "  --android   Android issues only"  
     echo "  --ios       iOS issues only"
+    echo "  --config-only  Rewrite Gradle config only (no cache wipe, no build test)"
     echo ""
     echo "Options:"
     echo "  --interactive   Interactive mode with confirmations (default)"
@@ -1212,6 +1229,9 @@ main() {
             ;;
         --full)
             full_mode
+            ;;
+        --config-only)
+            config_only_mode
             ;;
     esac
     
