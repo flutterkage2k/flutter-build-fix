@@ -5,7 +5,7 @@
 #
 # Repository: https://github.com/flutterkage2k/flutter-build-fix
 # Author: Heesung Jin (kage2k)
-# Version: 4.3.0 - Flutter 3.44.6 Support (flutter delegation, AGP 9 safe)
+# Version: 4.3.1 - Flutter 3.44.6 Support (flutter delegation, AGP 9 safe)
 # =============================================================================
 
 set -e
@@ -20,7 +20,7 @@ PURPLE='\033[0;35m'
 NC='\033[0m'
 
 # Version information
-SCRIPT_VERSION="4.3.0"
+SCRIPT_VERSION="4.3.1"
 REPO="flutterkage2k/flutter-build-fix"
 
 # Flutter 3.44.6 optimized version list (July 2026 update)
@@ -828,10 +828,20 @@ setup_java17() {
     
     export PATH="$JAVA_HOME/bin:$PATH"
     
-    if [ -f "android/local.properties" ] && [[ "$DRY_RUN_MODE" != "true" ]]; then
-        sed -i.bak '/^java\.home=/d' android/local.properties
-        echo "java.home=$JAVA_HOME" >> android/local.properties
-        log_success "java.home configured in local.properties"
+    if [[ "$DRY_RUN_MODE" != "true" ]]; then
+        # Android Studio's default gradleJvm macro (#GRADLE_LOCAL_JAVA_HOME) reads
+        # java.home from android/gradle/config.properties. If it's absent AS warns
+        # ("Undefined java.home ... #GRADLE_LOCAL_JAVA_HOME macro") and silently
+        # falls back to its embedded JBR. Writing it here fixes that and pins the
+        # Gradle daemon to JDK 17. (The old java.home line went into
+        # local.properties, which is deprecated and gets wiped by `flutter build`,
+        # so it never actually stuck - strip any leftover copy while here.)
+        [ -f android/local.properties ] && sed -i.bak '/^java\.home=/d' android/local.properties && rm -f android/local.properties.bak
+        mkdir -p android/gradle
+        local cfg="android/gradle/config.properties"
+        [ -f "$cfg" ] && sed -i.bak '/^java\.home=/d' "$cfg" && rm -f "${cfg}.bak"
+        echo "java.home=$JAVA_HOME" >> "$cfg"
+        log_success "java.home configured in gradle/config.properties (Android Studio + Gradle daemon JDK 17)"
     fi
     
     if [[ "$DRY_RUN_MODE" != "true" ]]; then
