@@ -1,12 +1,38 @@
-# Flutter Build Fix v4.0.0 - Universal DSL Support
+# Flutter Build Fix v4.5.0 - Universal DSL Support
 
 [![Flutter](https://img.shields.io/badge/Flutter-3.44.6-blue.svg)](https://flutter.dev)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20|%20Linux-lightgrey.svg)](https://github.com/flutterkage2k/flutter-build-fix)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**The most comprehensive Flutter build environment fix script with universal Kotlin DSL and Groovy DSL support.**
+## Purpose
 
-co
+**This tool exists to reduce the errors you hit when a Flutter app is built as a native Android project** — in Android Studio, in `flutter build`, and in your release pipeline.
+
+That is the only goal. Everything else is a means to it.
+
+### Guiding rule
+
+> **Never trade a working build for a silenced warning.**
+
+Flutter's preferred AGP/Kotlin versions are forward-looking and only produce *warnings*. The surrounding ecosystem — Android Studio releases, plugin authors — lags behind and fails *hard*. Chasing Flutter's numbers has broken real builds twice:
+
+| Version Flutter prefers | What it actually broke |
+|---|---|
+| AGP 8.11.1 | Android Studio 2024.3 refused to open the project |
+| Kotlin 2.2.20 | `sentry_flutter` failed to compile (`languageVersion 1.6` removed) |
+
+So this tool deliberately sits one notch below Flutter's preference on both, and tells you the resulting build warning is expected. A warning you can ignore beats an IDE you cannot open.
+
+### What it fixes
+
+| Cause of native build failure | How it is handled |
+|---|---|
+| AGP/Kotlin outside IDE and plugin support | Pinned to ecosystem-compatible versions |
+| Plugin versions disagreeing between `settings.gradle` and root `build.gradle` | All declaration sites kept in sync |
+| Gradle JDK unset → Android Studio falls back to its embedded JBR | `java.home` written to `gradle/config.properties` |
+| Leftover Java 8 source/target | Java 17 + `jvmTarget` 17 |
+| Hardcoded SDK/NDK versions going stale | Delegated to Flutter (`compileSdk`, `minSdk`, `targetSdk`, `ndkVersion`) |
+| `targetSdk` falling behind Google Play's requirement | Detected, with a reminder before you release |
 
 ## Quick Start
 
@@ -232,20 +258,26 @@ android/
 
 ## Migration Guide
 
-### From v3.x to v4.0.0
-1. **Backup your project**: `git commit -am "Before flutter-fix v4.0.0"`
+### From v3.x to v4.x
+1. **Backup your project**: `git commit -am "Before flutter-fix"`
 2. **Run installation**: Use the new install script
 3. **Test with dry-run**: `ff-dry` to preview changes
 4. **Apply changes**: `flutter-fix`
 5. **Verify build**: `flutter build apk --debug`
 
-> **What changed in v4.0.0**: targets Flutter 3.44.6 (AGP 8.11.1 / Gradle 8.14 /
-> Kotlin 2.2.20), delegates NDK & minSdk to Flutter instead of hardcoding them,
-> and lets you choose minSdk (delegate vs pin 26) at runtime. The old forced NDK
-> `29.0.13846066` is removed, and Gradle's configuration cache is left disabled
-> because it is incompatible with the `android.builtInKotlin=false` flag that
-> Flutter 3.44.6 mandates. Also fixes several latent bugs in the config engine
-> (project-type detection, Kotlin `jvmTarget` injection, Groovy Java-17 rewrite).
+> **What changed across v4.x**: targets Flutter 3.44.6 with AGP 8.10.0 / Gradle
+> 8.14 / Kotlin 2.1.0 / Java 17. SDK and NDK versions are delegated to Flutter
+> instead of hardcoded (`compileSdk`, `minSdk`, `targetSdk`, `ndkVersion`), so
+> they stop going stale — the old forced NDK `29.0.13846066` is gone. `minSdk`
+> and `targetSdk` ask before changing, since both affect app behavior.
+>
+> Gradle's configuration cache stays disabled: it is incompatible with the
+> `android.builtInKotlin=false` flag Flutter 3.44.6 mandates. `java.home` is
+> written to `gradle/config.properties`, which is where Android Studio's
+> `#GRADLE_LOCAL_JAVA_HOME` macro reads it.
+>
+> See the [releases](https://github.com/flutterkage2k/flutter-build-fix/releases)
+> for the per-version detail.
 
 ### New Project Setup
 For new Flutter projects (3.29+):
