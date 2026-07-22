@@ -5,7 +5,7 @@
 #
 # Repository: https://github.com/flutterkage2k/flutter-build-fix
 # Author: Heesung Jin (kage2k)
-# Version: 4.4.1 - Flutter 3.44.6 Support (flutter delegation, AGP 9 safe)
+# Version: 4.5.0 - Flutter 3.44.6 Support (flutter delegation, AGP 9 safe)
 # =============================================================================
 
 set -e
@@ -20,7 +20,7 @@ PURPLE='\033[0;35m'
 NC='\033[0m'
 
 # Version information
-SCRIPT_VERSION="4.4.1"
+SCRIPT_VERSION="4.5.0"
 REPO="flutterkage2k/flutter-build-fix"
 
 # Flutter 3.44.6 optimized version list (July 2026 update)
@@ -321,6 +321,55 @@ check_16kb_support_status() {
 }
 
 # =============================================================================
+# compileSdk (delegated silently - compile-time only, no behavior change)
+# =============================================================================
+
+# compileSdk only decides which APIs exist at compile time; it does not change how
+# the app behaves at runtime. So unlike targetSdk it is safe to delegate without
+# asking, the same way ndkVersion is.
+#
+# It matters because a hardcoded compileSdk goes stale while a delegated targetSdk
+# keeps rising with Flutter, and you end up with compileSdk BELOW targetSdk - the
+# app declares it targets an API level it cannot even compile against. AGP only
+# warns about this, so the build succeeds and the mismatch goes unnoticed.
+ensure_compile_sdk_delegation() {
+    local app_build_file="$1"
+    local file_type="$2"
+    [ -f "$app_build_file" ] || return 0
+
+    local current
+    current=$(grep -oE "compileSdk(Version)?[[:space:]]*=?[[:space:]]*[A-Za-z0-9._]+" "$app_build_file" | head -1)
+    [ -n "$current" ] || return 0
+
+    if echo "$current" | grep -q "flutter.compileSdkVersion"; then
+        log_success "compileSdk delegated to flutter.compileSdkVersion"
+        return 0
+    fi
+
+    local num
+    num=$(echo "$current" | grep -oE '[0-9]+' | head -1)
+    [ -n "$num" ] || return 0
+
+    log_warning "Hardcoded compileSdk detected: $num - delegating so it cannot fall behind targetSdk"
+
+    local modification_func=""
+    case "$file_type" in
+        "kotlin")
+            modification_func="
+                sed -i '' 's/compileSdk = [0-9][0-9]*/compileSdk = flutter.compileSdkVersion/g' '$app_build_file'
+            "
+            ;;
+        "groovy")
+            modification_func="
+                sed -i '' 's/compileSdkVersion [0-9][0-9]*/compileSdkVersion flutter.compileSdkVersion/g' '$app_build_file'
+                sed -i '' 's/compileSdk [0-9][0-9]*/compileSdk flutter.compileSdkVersion/g' '$app_build_file'
+            "
+            ;;
+    esac
+    safe_modify_file "$app_build_file" "compileSdk delegated to flutter.compileSdkVersion" "$modification_func"
+}
+
+# =============================================================================
 # targetSdk (asks before changing - this one alters app behavior)
 # =============================================================================
 
@@ -593,6 +642,9 @@ KOTLINEOF
         safe_modify_file "$app_build_file" "minSdk delegated to flutter.minSdkVersion" "$modification_func"
     fi
 
+    # compileSdk: safe to delegate silently (compile-time only)
+    ensure_compile_sdk_delegation "$app_build_file" "kotlin"
+
     # targetSdk: ask before touching it (affects runtime behavior)
     configure_target_sdk "$app_build_file" "kotlin"
 
@@ -668,6 +720,9 @@ update_groovy_app_build() {
         "
         safe_modify_file "$app_build_file" "minSdk delegated to flutter.minSdkVersion" "$modification_func"
     fi
+
+    # compileSdk: safe to delegate silently (compile-time only)
+    ensure_compile_sdk_delegation "$app_build_file" "groovy"
 
     # targetSdk: ask before touching it (affects runtime behavior)
     configure_target_sdk "$app_build_file" "groovy"
