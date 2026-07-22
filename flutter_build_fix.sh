@@ -5,7 +5,7 @@
 #
 # Repository: https://github.com/flutterkage2k/flutter-build-fix
 # Author: Heesung Jin (kage2k)
-# Version: 4.3.2 - Flutter 3.44.6 Support (flutter delegation, AGP 9 safe)
+# Version: 4.4.0 - Flutter 3.44.6 Support (flutter delegation, AGP 9 safe)
 # =============================================================================
 
 set -e
@@ -20,7 +20,7 @@ PURPLE='\033[0;35m'
 NC='\033[0m'
 
 # Version information
-SCRIPT_VERSION="4.3.2"
+SCRIPT_VERSION="4.4.0"
 REPO="flutterkage2k/flutter-build-fix"
 
 # Flutter 3.44.6 optimized version list (July 2026 update)
@@ -51,6 +51,12 @@ RECOMMENDED_GRADLE_VERSION="8.14"
 # 16KB page size support is handled automatically by Flutter's default NDK
 # (28.2.13676358+) as of Flutter 3.44.6 - no forced NDK version needed.
 FLUTTER_DEFAULT_NDK_VERSION="28.2.13676358"
+# Display only - what flutter.targetSdkVersion currently resolves to.
+FLUTTER_DEFAULT_TARGET_SDK="36"
+
+# Set when the user keeps a hardcoded targetSdk, so the run can end with a
+# reminder instead of the choice quietly scrolling past.
+TARGET_SDK_WARNING=""
 
 # Execution mode flags
 INTERACTIVE_MODE=true
@@ -315,6 +321,72 @@ check_16kb_support_status() {
 }
 
 # =============================================================================
+# targetSdk (asks before changing - this one alters app behavior)
+# =============================================================================
+
+# Unlike ndkVersion, targetSdk changes how the app behaves at runtime: raising it
+# opts the app into the new OS defaults, which is exactly why some projects pin it
+# on purpose. So never rewrite it silently - only speak up when it is hardcoded,
+# and if the user keeps that value, remember it so the run can end with a reminder.
+#
+# Delegating is preferred: flutter.targetSdkVersion tracks the Flutter SDK, which
+# is what quietly keeps a project meeting Google Play's target-API requirement
+# across yearly bumps. A hardcoded number always goes stale.
+configure_target_sdk() {
+    local app_build_file="$1"
+    local file_type="$2"
+    [ -f "$app_build_file" ] || return 0
+
+    local current
+    current=$(grep -oE "targetSdk(Version)?[[:space:]]*=?[[:space:]]*[A-Za-z0-9._]+" "$app_build_file" | head -1)
+    [ -n "$current" ] || return 0
+
+    if echo "$current" | grep -q "flutter.targetSdkVersion"; then
+        log_success "targetSdk delegated to flutter.targetSdkVersion (currently $FLUTTER_DEFAULT_TARGET_SDK)"
+        return 0
+    fi
+
+    local num
+    num=$(echo "$current" | grep -oE '[0-9]+' | head -1)
+    [ -n "$num" ] || return 0
+
+    log_warning "Hardcoded targetSdk detected: $num (it will not follow Flutter)"
+
+    local keep=false
+    if [[ "$FORCE_MODE" == "true" ]] || [[ "$AUTO_MODE" == "true" ]] || [[ "$INTERACTIVE_MODE" != "true" ]]; then
+        log_info "Delegating targetSdk to flutter.targetSdkVersion (auto-confirmed)"
+    else
+        echo -e "${CYAN}[STEP] Choose targetSdk configuration:${NC}"
+        echo "  1) Delegate to flutter.targetSdkVersion (recommended, currently $FLUTTER_DEFAULT_TARGET_SDK)"
+        echo "  2) Keep hardcoded targetSdk = $num"
+        read -p "Select [1/2] (default 1): " -r target_reply
+        [[ "$target_reply" == "2" ]] && keep=true
+    fi
+
+    if [[ "$keep" == "true" ]]; then
+        TARGET_SDK_WARNING="$num"
+        log_info "Keeping targetSdk = $num (you will get a reminder at the end)"
+        return 0
+    fi
+
+    local modification_func=""
+    case "$file_type" in
+        "kotlin")
+            modification_func="
+                sed -i '' 's/targetSdk = [0-9][0-9]*/targetSdk = flutter.targetSdkVersion/g' '$app_build_file'
+            "
+            ;;
+        "groovy")
+            modification_func="
+                sed -i '' 's/targetSdkVersion [0-9][0-9]*/targetSdkVersion flutter.targetSdkVersion/g' '$app_build_file'
+                sed -i '' 's/targetSdk [0-9][0-9]*/targetSdk flutter.targetSdkVersion/g' '$app_build_file'
+            "
+            ;;
+    esac
+    safe_modify_file "$app_build_file" "targetSdk delegated to flutter.targetSdkVersion" "$modification_func"
+}
+
+# =============================================================================
 # NDK Delegation (Flutter-managed, 16KB page size handled automatically)
 # =============================================================================
 
@@ -491,6 +563,9 @@ KOTLINEOF
         safe_modify_file "$app_build_file" "minSdk delegated to flutter.minSdkVersion" "$modification_func"
     fi
 
+    # targetSdk: ask before touching it (affects runtime behavior)
+    configure_target_sdk "$app_build_file" "kotlin"
+
     # NDK: delegate to flutter.ndkVersion (16KB handled automatically)
     ensure_ndk_delegation "$app_build_file" "kotlin"
 }
@@ -574,6 +649,9 @@ update_groovy_app_build() {
         "
         safe_modify_file "$app_build_file" "minSdk delegated to flutter.minSdkVersion" "$modification_func"
     fi
+
+    # targetSdk: ask before touching it (affects runtime behavior)
+    configure_target_sdk "$app_build_file" "groovy"
 
     # NDK: delegate to flutter.ndkVersion (16KB handled automatically)
     ensure_ndk_delegation "$app_build_file" "groovy"
@@ -1252,6 +1330,18 @@ main() {
     log_info "Performance improvements: AGP $RECOMMENDED_AGP_VERSION + Gradle $RECOMMENDED_GRADLE_VERSION + memory optimization"
     log_info "Stability: Verified versions (${STABLE_GRADLE_VERSIONS[*]}) prioritized"
     log_info "Repository: https://github.com/$REPO"
+
+    if [ -n "$TARGET_SDK_WARNING" ]; then
+        echo ""
+        echo -e "${YELLOW}=================================================================="
+        echo "  HEADS UP: your app targets API $TARGET_SDK_WARNING (hardcoded)"
+        echo "==================================================================${NC}"
+        log_warning "You chose to keep targetSdk = $TARGET_SDK_WARNING. Flutter's default is $FLUTTER_DEFAULT_TARGET_SDK."
+        log_warning "Google Play requires apps to target a recent API level - below it you cannot ship updates."
+        log_warning "Check the target API requirement in Play Console BEFORE your next release."
+        log_info "To follow Flutter automatically: targetSdk = flutter.targetSdkVersion"
+        echo ""
+    fi
 }
 
 # Execute script
